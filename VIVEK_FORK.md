@@ -14,10 +14,14 @@ macOS handler for `t3code://` links, so the upstream app can stay installed.
 The local build has no automatic update feed. Rebuild it when this fork moves
 to a newer upstream release.
 
-The Mac app icon and the client logo use the Office handshake from Nextcard.
-The source files are copied from `apps/office/public/icons/office-512.png` and
-`apps/office/public/affil-icon.svg` in that repository. Refresh both copies
-when the Office logo changes.
+The Mac app icon uses the Virtual Office `VO` monogram from Nextcard's
+`apps/office/src/features/app-shell/office-mark.tsx`. Its vector source is
+`assets/vivek/office-vo-macos.svg`. Regenerate the PNG after changing the SVG:
+
+```sh
+sips -s format png assets/vivek/office-vo-macos.svg \
+  --out assets/vivek/office-vo-macos-1024.png
+```
 
 Install dependencies with `vp i`. Build the macOS app at the release version
 used by the connected Ubuntu server:
