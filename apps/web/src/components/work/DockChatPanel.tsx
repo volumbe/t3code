@@ -44,7 +44,15 @@ import { projectScriptCwd } from "@t3tools/shared/projectScripts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
 import { MessageSquarePlusIcon } from "lucide-react";
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { ComposerHandleContext } from "~/composerHandleContext";
 import {
@@ -109,6 +117,7 @@ import {
 import { ChatComposer, type ChatComposerHandle } from "../chat/ChatComposer";
 import type { ComposerBannerStackItem } from "../chat/ComposerBannerStack";
 import { ComposerSurface } from "../chat/ComposerSurface";
+import { resolveComposerTimelineInset } from "../composerFooterLayout";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "../chat/composerPromptHistory";
 import {
   FOCUS_SCOPED_COMPOSER_COMMANDS,
@@ -125,6 +134,7 @@ export interface DockChatDefaults {
 
 const MAX_RENDERED_MESSAGES = 200;
 /** A chat created here exists on the client before the server records it; wait for its shell. */
+const TRANSCRIPT_TOP_PADDING_PX = 12;
 const DOCK_THREAD_OPTIONS = { waitForShell: true } as const;
 const TITLE_MAX_LENGTH = 60;
 const STICK_TO_BOTTOM_THRESHOLD_PX = 48;
@@ -205,24 +215,54 @@ export function DockChatPanel(props: {
     surface.threadId ?? surface.draftThreadId ?? fallbackDraftThreadId,
   );
 
+  // The composer floats over the bottom of the transcript like ChatView's, so
+  // it can rest into its compact bar while the transcript scrolls. The
+  // transcript keeps this much space clear at its end; while the composer
+  // rests the reservation holds its expanded height (see ChatView).
+  const [composerInset, setComposerInset] = useState(0);
+  const composerInsetRef = useRef(0);
+  const composerRestingRef = useRef(false);
+  const [timelineOverflows, setTimelineOverflows] = useState(false);
+  const publishComposerOverlayHeight = useCallback((height: number) => {
+    const overlayHeight = Math.ceil(height);
+    if (overlayHeight <= 0) return;
+    const nextInset = resolveComposerTimelineInset({
+      currentInset: composerInsetRef.current,
+      overlayHeight,
+      isResting: composerRestingRef.current,
+    });
+    if (nextInset === composerInsetRef.current) return;
+    composerInsetRef.current = nextInset;
+    setComposerInset(nextInset);
+  }, []);
+  const onComposerRestingChange = useCallback((resting: boolean) => {
+    composerRestingRef.current = resting;
+  }, []);
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-dock-chat>
+    <div className="relative flex min-h-0 flex-1 flex-col" data-dock-chat>
       {threadRef ? (
         <DockChatTranscript
           threadRef={threadRef}
           cwd={project.workspaceRoot}
           scrollNodeRef={scrollNodeRef}
+          bottomInset={composerInset}
+          onOverflowChange={setTimelineOverflows}
         />
       ) : (
         <DockChatPicker
           candidates={candidates}
           projectTitle={project.title}
           scrollNodeRef={scrollNodeRef}
+          bottomInset={composerInset}
           onNewChat={() => composerRef.current?.focusAtEnd()}
           onSelect={selectThread}
         />
       )}
       <DockChatComposer
+        timelineOverflows={threadRef !== null && timelineOverflows}
+        onOverlayHeightChange={publishComposerOverlayHeight}
+        onRestingChange={onComposerRestingChange}
         hostThreadRef={hostThreadRef}
         project={project}
         threadId={composerThreadId}
@@ -240,12 +280,17 @@ function DockChatPicker(props: {
   candidates: ReadonlyArray<EnvironmentThreadShell>;
   projectTitle: string;
   scrollNodeRef: RefObject<HTMLDivElement | null>;
+  bottomInset: number;
   onNewChat: () => void;
   onSelect: (threadId: string) => void;
 }) {
   const { candidates, projectTitle, scrollNodeRef, onNewChat, onSelect } = props;
   return (
-    <div ref={scrollNodeRef} className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
+    <div
+      ref={scrollNodeRef}
+      className="min-h-0 flex-1 overflow-y-auto px-2 pt-3"
+      style={{ paddingBottom: props.bottomInset + 12 }}
+    >
       <button
         type="button"
         className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm font-medium hover:bg-accent/60"
@@ -287,8 +332,11 @@ function DockChatTranscript(props: {
   threadRef: ScopedThreadRef;
   cwd: string;
   scrollNodeRef: RefObject<HTMLDivElement | null>;
+  bottomInset: number;
+  onOverflowChange: (overflows: boolean) => void;
 }) {
-  const { scrollNodeRef } = props;
+  const { bottomInset, onOverflowChange, scrollNodeRef } = props;
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const thread = useThread(props.threadRef, DOCK_THREAD_OPTIONS);
   const threadShell = useThreadShell(props.threadRef);
   const stickToBottomRef = useRef(true);
@@ -304,7 +352,25 @@ function DockChatTranscript(props: {
   useEffect(() => {
     const node = scrollNodeRef.current;
     if (node && stickToBottomRef.current) node.scrollTop = node.scrollHeight;
-  }, [messages.length, lastMessage?.text, scrollNodeRef]);
+  }, [messages.length, lastMessage?.text, bottomInset, scrollNodeRef]);
+
+  // Whether the messages run past the space above the composer; the composer
+  // only rests when there is reading space to give back.
+  useLayoutEffect(() => {
+    const node = scrollNodeRef.current;
+    const content = contentRef.current;
+    if (!node || !content) return;
+    const update = () =>
+      onOverflowChange(
+        content.offsetHeight + TRANSCRIPT_TOP_PADDING_PX > node.clientHeight - bottomInset,
+      );
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [bottomInset, onOverflowChange, scrollNodeRef]);
 
   // Approvals are answered in the composer; questions still need the main view.
   const needsAttention = threadShell?.hasPendingUserInput === true;
@@ -312,45 +378,48 @@ function DockChatTranscript(props: {
   return (
     <div
       ref={scrollNodeRef}
-      className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+      className="min-h-0 flex-1 overflow-y-auto px-3 pt-3"
+      style={{ paddingBottom: bottomInset + 12 }}
       onScroll={(event) => {
         const node = event.currentTarget;
         stickToBottomRef.current =
           node.scrollHeight - node.scrollTop - node.clientHeight < STICK_TO_BOTTOM_THRESHOLD_PX;
       }}
     >
-      {thread === null ? (
-        <p className="text-sm text-muted-foreground">Loading messages…</p>
-      ) : messages.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No messages yet.</p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {messages.map((message) =>
-            message.role === "user" ? (
-              <div
-                key={message.id}
-                className="ml-8 self-end rounded-lg bg-muted px-3 py-2 text-sm whitespace-pre-wrap"
-              >
-                {message.text}
-              </div>
-            ) : (
-              <ChatMarkdown
-                key={message.id}
-                text={message.text}
-                cwd={props.cwd}
-                threadRef={props.threadRef}
-                isStreaming={message.streaming}
-                className="text-sm"
-              />
-            ),
-          )}
-        </div>
-      )}
-      {needsAttention ? (
-        <p className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
-          This chat is waiting for your answer. Open it in the main view to respond.
-        </p>
-      ) : null}
+      <div ref={contentRef}>
+        {thread === null ? (
+          <p className="text-sm text-muted-foreground">Loading messages…</p>
+        ) : messages.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No messages yet.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {messages.map((message) =>
+              message.role === "user" ? (
+                <div
+                  key={message.id}
+                  className="ml-8 self-end rounded-lg bg-muted px-3 py-2 text-sm whitespace-pre-wrap"
+                >
+                  {message.text}
+                </div>
+              ) : (
+                <ChatMarkdown
+                  key={message.id}
+                  text={message.text}
+                  cwd={props.cwd}
+                  threadRef={props.threadRef}
+                  isStreaming={message.streaming}
+                  className="text-sm"
+                />
+              ),
+            )}
+          </div>
+        )}
+        {needsAttention ? (
+          <p className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+            This chat is waiting for your answer. Open it in the main view to respond.
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -415,6 +484,9 @@ function DockChatComposer(props: {
   composerRef: RefObject<ChatComposerHandle | null>;
   scrollNodeRef: RefObject<HTMLDivElement | null>;
   onThreadCreated: (threadId: string) => void;
+  timelineOverflows: boolean;
+  onOverlayHeightChange: (height: number) => void;
+  onRestingChange: (resting: boolean) => void;
 }) {
   const { composerRef, isNewChat, project, scrollNodeRef, threadId: chatThreadId } = props;
   const environmentId = project.environmentId;
@@ -1127,6 +1199,17 @@ function DockChatComposer(props: {
     return () => window.removeEventListener("keydown", handler, true);
   }, [canInterrupt, composerRef, keybindings, onInterrupt]);
 
+  const [overlayElement, setOverlayElement] = useState<HTMLDivElement | null>(null);
+  const { onOverlayHeightChange } = props;
+  useLayoutEffect(() => {
+    if (!overlayElement) return;
+    const update = () => onOverlayHeightChange(overlayElement.getBoundingClientRect().height);
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(overlayElement);
+    return () => observer.disconnect();
+  }, [onOverlayHeightChange, overlayElement]);
   const getTimelineScrollableNode = useCallback(() => scrollNodeRef.current, [scrollNodeRef]);
   const isTimelineAtLogicalEnd = useCallback(() => {
     const node = scrollNodeRef.current;
@@ -1152,113 +1235,128 @@ function DockChatComposer(props: {
   );
 
   return (
-    <div ref={scopeRef} className="shrink-0 px-2 pt-1 pb-2" {...focusScopedComposerProps}>
-      {/* Menus inside this composer return focus to it, not to the main composer. */}
-      <ComposerHandleContext value={composerRef}>
-        <ComposerSurface.Shell>
-          <ComposerSurface.Host>
-            <div className="relative z-10">
-              <ChatComposer
-                composerRef={composerRef}
-                composerDraftTarget={composerDraftTarget}
-                environmentId={environmentId}
-                attachmentUploadsCapabilityKnown={attachmentUploadsCapabilityKnown}
-                supportsAttachmentUploads={supportsAttachmentUploads}
-                supportsQuestionAttachments={false}
-                maxFileAttachmentBytes={maxFileAttachmentBytes}
-                routeKind="server"
-                routeThreadRef={threadRef}
-                draftId={null}
-                activeThreadId={chatThreadId}
-                activeThreadEnvironmentId={environmentId}
-                activeThread={activeThread}
-                activeThreadShell={threadShell}
-                promptHistoryMessages={serverThread?.messages ?? EMPTY_MESSAGES}
-                isServerThread={!isNewChat}
-                isLocalDraftThread={isNewChat}
-                forceExpandedOnMobile={false}
-                projectSelectionRequired={false}
-                phase={phase}
-                isConnecting={false}
-                isSendBusy={isSendBusy}
-                sendDisabledReason={threadLoading ? "Messages loading" : null}
-                isPreparingWorktree={false}
-                bannerItems={EMPTY_BANNER_ITEMS}
-                environmentUnavailable={environmentUnavailable}
-                activePendingApproval={pendingApprovals[0] ?? null}
-                pendingApprovals={pendingApprovals}
-                pendingUserInputs={EMPTY_PENDING_USER_INPUTS}
-                activePendingProgress={null}
-                activePendingResolvedAnswers={null}
-                activePendingIsResponding={false}
-                activePendingDraftAnswers={EMPTY_PENDING_DRAFT_ANSWERS}
-                activePendingQuestionIndex={0}
-                respondingRequestIds={respondingRequestIds}
-                showPlanFollowUpPrompt={false}
-                activeProposedPlan={null}
-                activeTasksProgress={null}
-                activeTaskSteps={null}
-                threadSyncPhase={null}
-                runtimeMode={runtimeMode}
-                interactionMode={interactionMode}
-                lockedProvider={lockedProvider}
-                providerStatuses={providerStatuses as ServerProvider[]}
-                providerCatalogKnown={serverConfig !== null}
-                activeProjectDefaultModelSelection={projectDefaultModelSelection}
-                activeThreadModelSelection={activeThread?.modelSelection}
-                activeContextWindow={activeContextWindow}
-                compactThreadUnavailable
-                compactDisabled
-                compactDisabledReason="Open this chat in the main view to compact it"
-                resolvedTheme={resolvedTheme}
-                settings={settings}
-                keybindings={keybindings}
-                terminalOpen={false}
-                gitCwd={gitCwd}
-                pullRequestProjectId={null}
-                pullRequestRepository={null}
-                restingControlsHost={null}
-                restingControlsHaveLeadingContext={false}
-                onRestingControlsVisibilityChange={noop}
-                getTimelineScrollableNode={getTimelineScrollableNode}
-                isTimelineAtLogicalEnd={isTimelineAtLogicalEnd}
-                // The dock composer never rests: it stays the expanded composer.
-                timelineOverflows={false}
-                onComposerOverlayHeightChange={noop}
-                onRestingChange={noop}
-                promptRef={promptRef}
-                composerImagesRef={composerImagesRef}
-                composerFilesRef={composerFilesRef}
-                composerTerminalContextsRef={composerTerminalContextsRef}
-                onPageScrollKeyDown={onPageScrollKeyDown}
-                onPageScrollKeyUp={noop}
-                onPageScrollRelease={noop}
-                onCompactContext={noop}
-                onSend={onSend}
-                onInterrupt={onInterrupt}
-                onImplementPlanInNewThread={noop}
-                onRespondToApproval={onRespondToApproval}
-                onSelectActivePendingUserInputOption={noop}
-                onAdvanceActivePendingUserInput={noop}
-                onDismissActivePendingUserInput={noop}
-                onPreviousActivePendingUserInputQuestion={noop}
-                onChangeActivePendingUserInputCustomAnswer={noop}
-                onProviderModelSelect={onProviderModelSelect}
-                onOpenProviderSetup={openProviderSetup}
-                getModelDisabledReason={getModelDisabledReason}
-                toggleInteractionMode={toggleInteractionMode}
-                handleRuntimeModeChange={handleRuntimeModeChange}
-                handleInteractionModeChange={handleInteractionModeChange}
-                focusComposer={focusComposer}
-                scheduleComposerFocus={scheduleComposerFocus}
-                setThreadError={setThreadError}
-                onExpandImage={setExpandedImage}
-                onFileOpen={onFileOpen}
-              />
-            </div>
-          </ComposerSurface.Host>
-        </ComposerSurface.Shell>
-      </ComposerHandleContext>
+    <div
+      ref={setOverlayElement}
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
+    >
+      <div className="w-full ps-[calc(env(safe-area-inset-left)+0.75rem)] pe-[calc(env(safe-area-inset-right)+0.75rem)] sm:ps-[calc(env(safe-area-inset-left)+1.25rem)] sm:pe-[calc(env(safe-area-inset-right)+1.25rem)]">
+        <div
+          ref={scopeRef}
+          className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-3xl"
+          {...focusScopedComposerProps}
+        >
+          {/* Menus inside this composer return focus to it, not to the main composer. */}
+          <ComposerHandleContext value={composerRef}>
+            <ComposerSurface.Shell>
+              <ComposerSurface.Host>
+                <div className="relative z-10">
+                  <ChatComposer
+                    composerRef={composerRef}
+                    composerDraftTarget={composerDraftTarget}
+                    environmentId={environmentId}
+                    attachmentUploadsCapabilityKnown={attachmentUploadsCapabilityKnown}
+                    supportsAttachmentUploads={supportsAttachmentUploads}
+                    supportsQuestionAttachments={false}
+                    maxFileAttachmentBytes={maxFileAttachmentBytes}
+                    routeKind="server"
+                    routeThreadRef={threadRef}
+                    draftId={null}
+                    activeThreadId={chatThreadId}
+                    activeThreadEnvironmentId={environmentId}
+                    activeThread={activeThread}
+                    activeThreadShell={threadShell}
+                    promptHistoryMessages={serverThread?.messages ?? EMPTY_MESSAGES}
+                    isServerThread={!isNewChat}
+                    isLocalDraftThread={isNewChat}
+                    forceExpandedOnMobile={false}
+                    projectSelectionRequired={false}
+                    phase={phase}
+                    isConnecting={false}
+                    isSendBusy={isSendBusy}
+                    sendDisabledReason={threadLoading ? "Messages loading" : null}
+                    isPreparingWorktree={false}
+                    bannerItems={EMPTY_BANNER_ITEMS}
+                    environmentUnavailable={environmentUnavailable}
+                    activePendingApproval={pendingApprovals[0] ?? null}
+                    pendingApprovals={pendingApprovals}
+                    pendingUserInputs={EMPTY_PENDING_USER_INPUTS}
+                    activePendingProgress={null}
+                    activePendingResolvedAnswers={null}
+                    activePendingIsResponding={false}
+                    activePendingDraftAnswers={EMPTY_PENDING_DRAFT_ANSWERS}
+                    activePendingQuestionIndex={0}
+                    respondingRequestIds={respondingRequestIds}
+                    showPlanFollowUpPrompt={false}
+                    activeProposedPlan={null}
+                    activeTasksProgress={null}
+                    activeTaskSteps={null}
+                    threadSyncPhase={null}
+                    runtimeMode={runtimeMode}
+                    interactionMode={interactionMode}
+                    lockedProvider={lockedProvider}
+                    providerStatuses={providerStatuses as ServerProvider[]}
+                    providerCatalogKnown={serverConfig !== null}
+                    activeProjectDefaultModelSelection={projectDefaultModelSelection}
+                    activeThreadModelSelection={activeThread?.modelSelection}
+                    activeContextWindow={activeContextWindow}
+                    compactThreadUnavailable
+                    compactDisabled
+                    compactDisabledReason="Open this chat in the main view to compact it"
+                    resolvedTheme={resolvedTheme}
+                    settings={settings}
+                    keybindings={keybindings}
+                    terminalOpen={false}
+                    gitCwd={gitCwd}
+                    pullRequestProjectId={null}
+                    pullRequestRepository={null}
+                    restingControlsHost={null}
+                    restingControlsHaveLeadingContext={false}
+                    onRestingControlsVisibilityChange={noop}
+                    getTimelineScrollableNode={getTimelineScrollableNode}
+                    isTimelineAtLogicalEnd={isTimelineAtLogicalEnd}
+                    // The dock composer never rests: it stays the expanded composer.
+                    timelineOverflows={props.timelineOverflows}
+                    onComposerOverlayHeightChange={props.onOverlayHeightChange}
+                    onRestingChange={props.onRestingChange}
+                    promptRef={promptRef}
+                    composerImagesRef={composerImagesRef}
+                    composerFilesRef={composerFilesRef}
+                    composerTerminalContextsRef={composerTerminalContextsRef}
+                    onPageScrollKeyDown={onPageScrollKeyDown}
+                    onPageScrollKeyUp={noop}
+                    onPageScrollRelease={noop}
+                    onCompactContext={noop}
+                    onSend={onSend}
+                    onInterrupt={onInterrupt}
+                    onImplementPlanInNewThread={noop}
+                    onRespondToApproval={onRespondToApproval}
+                    onSelectActivePendingUserInputOption={noop}
+                    onAdvanceActivePendingUserInput={noop}
+                    onDismissActivePendingUserInput={noop}
+                    onPreviousActivePendingUserInputQuestion={noop}
+                    onChangeActivePendingUserInputCustomAnswer={noop}
+                    onProviderModelSelect={onProviderModelSelect}
+                    onOpenProviderSetup={openProviderSetup}
+                    getModelDisabledReason={getModelDisabledReason}
+                    toggleInteractionMode={toggleInteractionMode}
+                    handleRuntimeModeChange={handleRuntimeModeChange}
+                    handleInteractionModeChange={handleInteractionModeChange}
+                    focusComposer={focusComposer}
+                    scheduleComposerFocus={scheduleComposerFocus}
+                    setThreadError={setThreadError}
+                    onExpandImage={setExpandedImage}
+                    onFileOpen={onFileOpen}
+                  />
+                </div>
+              </ComposerSurface.Host>
+            </ComposerSurface.Shell>
+          </ComposerHandleContext>
+        </div>
+      </div>
+      <div
+        aria-hidden
+        className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
+      />
       {expandedImage ? (
         <ExpandedImageDialog
           key={expandedImageKey(expandedImage)}
