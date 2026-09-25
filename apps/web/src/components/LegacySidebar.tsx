@@ -864,9 +864,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </Tooltip>
           )}
           <div
-            className={`flex min-w-12 justify-end ${
-              isRemoteThread ? "max-sm:min-w-24" : "max-sm:min-w-20"
-            }`}
+            className={
+              isWorkMode
+                ? // No timestamp in Work mode: reserve only the archive button's width.
+                  "flex min-w-5 justify-end"
+                : `flex min-w-12 justify-end ${
+                    isRemoteThread ? "max-sm:min-w-24" : "max-sm:min-w-20"
+                  }`
+            }
           >
             {isConfirmingArchive ? (
               <button
