@@ -1,11 +1,12 @@
 /**
- * T3 Work client state: the Code/Work mode switch and Work's folder tree.
+ * T3 Work client state: the Code/Work mode switch and the sidebar's Chats section.
  *
- * Folders are a client-side organization layer over server threads. The server
- * still owns every thread and its project; this store only records which folder
- * a thread is filed in, keyed by `scopedThreadKey`. A thread without an entry is
- * unfiled. Deleting a folder never deletes threads: its contents move up to the
- * parent folder.
+ * Chats is a client-side organization layer over server threads. The server
+ * still owns every thread and its project; this store only records which threads
+ * were moved into Chats, keyed by `scopedThreadKey`. A thread without an entry
+ * stays under its project. An entry holds a folder id, or `CHATS_ROOT` for the
+ * top level of Chats. Deleting a folder never deletes threads: its contents move
+ * up to the parent folder, or to the top level of Chats.
  */
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -32,6 +33,9 @@ export interface WorkModeData {
 }
 
 export const WORK_MODE_STORAGE_KEY = "t3work:work-mode:v1";
+
+/** Placement value for a thread at the top level of Chats, outside any folder. */
+export const CHATS_ROOT = "";
 
 export const initialWorkModeData: WorkModeData = {
   mode: "code",
@@ -105,11 +109,8 @@ export function deleteFolder(data: WorkModeData, folderId: string): WorkModeData
   if (!folder) return data;
   const threadFolderByKey: Record<string, string> = {};
   for (const [threadKey, threadFolderId] of Object.entries(data.threadFolderByKey)) {
-    if (threadFolderId !== folderId) {
-      threadFolderByKey[threadKey] = threadFolderId;
-    } else if (folder.parentId !== null) {
-      threadFolderByKey[threadKey] = folder.parentId;
-    }
+    threadFolderByKey[threadKey] =
+      threadFolderId === folderId ? (folder.parentId ?? CHATS_ROOT) : threadFolderId;
   }
   return {
     ...data,
@@ -140,8 +141,8 @@ export function moveFolder(
   };
 }
 
-/** File threads in a folder, or unfile them with `null`. */
-export function moveThreadsToFolder(
+/** Move threads into Chats: into a folder, or to the top level with `null`. */
+export function moveThreadsToChats(
   data: WorkModeData,
   threadKeys: ReadonlyArray<string>,
   folderId: string | null,
@@ -149,11 +150,20 @@ export function moveThreadsToFolder(
   if (!folderExists(data, folderId) || threadKeys.length === 0) return data;
   const threadFolderByKey = { ...data.threadFolderByKey };
   for (const threadKey of threadKeys) {
-    if (folderId === null) {
-      delete threadFolderByKey[threadKey];
-    } else {
-      threadFolderByKey[threadKey] = folderId;
-    }
+    threadFolderByKey[threadKey] = folderId ?? CHATS_ROOT;
+  }
+  return { ...data, threadFolderByKey };
+}
+
+/** Move threads out of Chats, back under their projects. */
+export function returnThreadsToProjects(
+  data: WorkModeData,
+  threadKeys: ReadonlyArray<string>,
+): WorkModeData {
+  if (!threadKeys.some((threadKey) => threadKey in data.threadFolderByKey)) return data;
+  const threadFolderByKey = { ...data.threadFolderByKey };
+  for (const threadKey of threadKeys) {
+    delete threadFolderByKey[threadKey];
   }
   return { ...data, threadFolderByKey };
 }
@@ -173,14 +183,27 @@ export function setFolderCollapsed(
   };
 }
 
-/** Resolve a thread's folder, treating entries for deleted folders as unfiled. */
-export function resolveThreadFolderId(
+export type WorkThreadPlacement =
+  | { readonly kind: "project" }
+  | { readonly kind: "chats"; readonly folderId: string | null };
+
+/**
+ * Where a thread shows in the Work sidebar. A thread filed in a folder that no
+ * longer exists shows at the top level of Chats.
+ */
+export function resolveThreadPlacement(
   data: Pick<WorkModeData, "folders" | "threadFolderByKey">,
   threadKey: string,
-): string | null {
+): WorkThreadPlacement {
   const folderId = data.threadFolderByKey[threadKey];
-  if (!folderId) return null;
-  return data.folders.some((folder) => folder.id === folderId) ? folderId : null;
+  if (folderId === undefined) return { kind: "project" };
+  return {
+    kind: "chats",
+    folderId:
+      folderId !== CHATS_ROOT && data.folders.some((folder) => folder.id === folderId)
+        ? folderId
+        : null,
+  };
 }
 
 export interface WorkFolderNode {
@@ -249,13 +272,17 @@ function sanitizePersistedData(value: unknown): WorkModeData {
 }
 
 interface WorkModeStore extends WorkModeData {
+  /** Folder whose name is being edited inline. Not persisted. */
+  editingFolderId: string | null;
   setMode: (mode: AppMode) => void;
   createFolder: (name: string, parentId: string | null) => string;
   renameFolder: (folderId: string, name: string) => void;
   deleteFolder: (folderId: string) => void;
   moveFolder: (folderId: string, parentId: string | null) => void;
-  moveThreadsToFolder: (threadKeys: ReadonlyArray<string>, folderId: string | null) => void;
+  moveThreadsToChats: (threadKeys: ReadonlyArray<string>, folderId: string | null) => void;
+  returnThreadsToProjects: (threadKeys: ReadonlyArray<string>) => void;
   setFolderCollapsed: (folderId: string, collapsed: boolean) => void;
+  setEditingFolderId: (folderId: string | null) => void;
   setDefaultProjectKey: (projectKey: string | null) => void;
 }
 
@@ -271,6 +298,7 @@ export const useWorkModeStore = create<WorkModeStore>()(
   persist(
     (set) => ({
       ...initialWorkModeData,
+      editingFolderId: null,
       setMode: (mode) => set({ mode }),
       createFolder: (name, parentId) => {
         const id = randomUUID();
@@ -289,10 +317,13 @@ export const useWorkModeStore = create<WorkModeStore>()(
       deleteFolder: (folderId) => set((state) => deleteFolder(pickData(state), folderId)),
       moveFolder: (folderId, parentId) =>
         set((state) => moveFolder(pickData(state), folderId, parentId)),
-      moveThreadsToFolder: (threadKeys, folderId) =>
-        set((state) => moveThreadsToFolder(pickData(state), threadKeys, folderId)),
+      moveThreadsToChats: (threadKeys, folderId) =>
+        set((state) => moveThreadsToChats(pickData(state), threadKeys, folderId)),
+      returnThreadsToProjects: (threadKeys) =>
+        set((state) => returnThreadsToProjects(pickData(state), threadKeys)),
       setFolderCollapsed: (folderId, collapsed) =>
         set((state) => setFolderCollapsed(pickData(state), folderId, collapsed)),
+      setEditingFolderId: (editingFolderId) => set({ editingFolderId }),
       setDefaultProjectKey: (defaultProjectKey) => set({ defaultProjectKey }),
     }),
     {

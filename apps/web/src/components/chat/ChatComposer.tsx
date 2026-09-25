@@ -92,6 +92,7 @@ import {
   composerFloatingLayerProps,
   useComposerMenuProps,
   isInsideCollapsedComposerControls,
+  composerOwnsShortcutEvent,
   isInsideComposerFloatingLayer,
   isInsideRestingComposerControlScope,
 } from "./composerEventScope";
@@ -2148,7 +2149,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ) !== null;
       if (
         (activeElement instanceof Node && composerFormRef.current?.contains(activeElement)) ||
-        !blocksPasteToFocus
+        (!blocksPasteToFocus && composerOwnsShortcutEvent(composerFormRef.current, activeElement))
       ) {
         armPasteAsTextShortcut();
       }
@@ -5077,6 +5078,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       });
       if (command !== "composer.stash") return;
+      // With a second composer mounted, only one of them stashes.
+      if (!composerOwnsShortcutEvent(composerFormRef.current, event.target)) return;
       // Always claim the shortcut so the browser save dialog never opens,
       // even when the composer is in a state that can't stash.
       event.preventDefault();

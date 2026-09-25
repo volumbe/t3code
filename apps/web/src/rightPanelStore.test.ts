@@ -52,6 +52,27 @@ describe("rightPanelStore", () => {
     expect(state.activeSurfaceId).toBe(newChat!.id);
   });
 
+  it("reserves a fresh draft thread id each time a chat surface becomes a new chat", () => {
+    const store = useRightPanelStore.getState();
+    store.openChat(refA, null);
+    const chatOf = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces.find(
+        (surface) => surface.kind === "chat",
+      );
+    const first = chatOf();
+    expect(first?.kind === "chat" ? first.draftThreadId : undefined).toEqual(expect.any(String));
+
+    store.setChatSurfaceThread(refA, first!.id, "thread-C");
+    expect(chatOf()).toEqual({ id: first!.id, kind: "chat", threadId: "thread-C" });
+
+    store.setChatSurfaceThread(refA, first!.id, null);
+    const reopened = chatOf();
+    expect(reopened).toMatchObject({ id: first!.id, kind: "chat", threadId: null });
+    const reopenedDraftId = reopened?.kind === "chat" ? reopened.draftThreadId : undefined;
+    expect(reopenedDraftId).toEqual(expect.any(String));
+    expect(reopenedDraftId).not.toBe(first?.kind === "chat" ? first.draftThreadId : undefined);
+  });
+
   it("gives each host/device its own tab and preserves renamed tabs", () => {
     const store = useRightPanelStore.getState();
     const android = {

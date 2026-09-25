@@ -39,7 +39,6 @@ import {
   OrchestrationThreadActivity,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ProviderInteractionMode,
-  ProviderDriverKind,
   resolveEnvironmentMachineKind,
   RuntimeMode,
   TerminalOpenInput,
@@ -62,11 +61,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import {
-  applyClaudePromptEffortPrefix,
-  createModelSelection,
-  resolvePromptInjectedEffort,
-} from "@t3tools/shared/model";
+import { createModelSelection } from "@t3tools/shared/model";
 import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
@@ -245,7 +240,6 @@ import {
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
 import { registerFaviconProjectForThread } from "~/browserFaviconStore";
-import { getProviderModelCapabilities } from "../providerModels";
 import {
   applyProviderInstanceSettings,
   deriveProviderInstanceEntries,
@@ -386,6 +380,10 @@ import {
 import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import {
+  FOCUS_SCOPED_COMPOSER_COMMANDS,
+  isInsideFocusScopedComposer,
+} from "./chat/composerEventScope";
+import {
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
   shouldOfferResumeCompaction,
@@ -444,6 +442,7 @@ import {
   resolveComposerProviderSelection,
   resolveDraftHeroState,
   findRecordedWorktreeSetup,
+  formatOutgoingPrompt,
   resolveVisibleWorktreeSetup,
   restorePlanFollowUpComposer,
   isPaintOnlyThreadTimeline,
@@ -699,17 +698,6 @@ function pasteTextToFocusComposer(event: ClipboardEvent): string | null {
   return text.length > 0 ? text : null;
 }
 
-function formatOutgoingPrompt(params: {
-  provider: ProviderDriverKind;
-  model: string | null;
-  models: ReadonlyArray<ServerProvider["models"][number]>;
-  effort: string | null;
-  text: string;
-}): string {
-  const caps = getProviderModelCapabilities(params.models, params.model, params.provider);
-  const promptEffort = resolvePromptInjectedEffort(caps, params.effort);
-  return applyClaudePromptEffortPrefix(params.text, promptEffort);
-}
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
 
@@ -6614,6 +6602,13 @@ export default function ChatView(props: ChatViewProps) {
         context: shortcutContext,
       });
       if (!command) return;
+      // A focused dock chat composer answers its own composer shortcuts.
+      if (
+        FOCUS_SCOPED_COMPOSER_COMMANDS.has(command) &&
+        isInsideFocusScopedComposer(event.target)
+      ) {
+        return;
+      }
 
       if (command === "thread.copyReference") {
         event.preventDefault();
@@ -9262,11 +9257,7 @@ export default function ChatView(props: ChatViewProps) {
         hostThreadRef={activeThreadRef}
         surface={renderedRightPanelSurface}
         project={activeProject}
-        defaults={{
-          modelSelection: activeThread.modelSelection,
-          runtimeMode: activeThread.runtimeMode,
-          interactionMode: activeThread.interactionMode,
-        }}
+        defaults={{ modelSelection: activeThread.modelSelection }}
       />
     ) : renderedRightPanelSurface?.kind === "agents" ? (
       <AgentsPanel

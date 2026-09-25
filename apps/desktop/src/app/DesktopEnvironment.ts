@@ -45,6 +45,11 @@ export class DesktopEnvironment extends Context.Service<
     readonly homeDirectory: string;
     readonly appDataDirectory: string;
     readonly baseDir: string;
+    /**
+     * Server state home the primary backend shares with the upstream T3 Code
+     * app, when set. Client state (connections, settings) stays in `stateDir`.
+     */
+    readonly sharedBackendHomeDir?: string | undefined;
     readonly stateDir: string;
     readonly desktopSettingsPath: string;
     readonly clientSettingsPath: string;
@@ -169,6 +174,10 @@ const make = Effect.fn("desktop.environment.make")(function* (
     t3Home: config.t3Home,
     defaultDirName: input.isPackaged ? ".t3-vivek" : ".t3",
   });
+  // T3 Work shares local threads with the upstream app's `~/.t3` unless
+  // T3CODE_HOME pins a home explicitly.
+  const sharedBackendHomeDir =
+    input.isPackaged && Option.isNone(config.t3Home) ? path.join(homeDirectory, ".t3") : undefined;
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
   const serverRoot =
@@ -207,6 +216,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
     homeDirectory,
     appDataDirectory,
     baseDir,
+    sharedBackendHomeDir,
     stateDir,
     desktopSettingsPath: path.join(stateDir, "desktop-settings.json"),
     clientSettingsPath: path.join(stateDir, "client-settings.json"),

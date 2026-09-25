@@ -91,9 +91,11 @@ export type RightPanelSurface =
   /**
    * Another chat from the same project, shown beside the main thread. The id is
    * stable while `threadId` moves from null (a new, unsent chat) to the thread
-   * created by its first message.
+   * created by its first message. A new chat reserves `draftThreadId` up front:
+   * its composer draft is keyed by that id, and its first message creates the
+   * thread under it.
    */
-  | { id: `chat:${string}`; kind: "chat"; threadId: string | null };
+  | { id: `chat:${string}`; kind: "chat"; threadId: string | null; draftThreadId?: string };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -278,6 +280,14 @@ export function pullRequestSurface(target: {
     ...(typeof target.url === "string" ? { url: target.url } : {}),
   };
 }
+
+export type ChatSurface = Extract<RightPanelSurface, { kind: "chat" }>;
+
+/** A chat surface; a new chat (null thread) reserves a fresh thread id for its draft. */
+const chatSurface = (id: ChatSurface["id"], threadId: string | null): ChatSurface =>
+  threadId === null
+    ? { id, kind: "chat", threadId: null, draftThreadId: randomUUID() }
+    : { id, kind: "chat", threadId };
 
 const upsertSurface = (
   current: ThreadRightPanelState,
@@ -642,7 +652,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                   );
             return upsertSurface(
               current,
-              existing ?? { id: `chat:${randomUUID()}`, kind: "chat", threadId },
+              existing ?? chatSurface(`chat:${randomUUID()}`, threadId),
             );
           }),
         ),
@@ -671,7 +681,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               ...current,
               surfaces: current.surfaces.map((surface) =>
                 surface.id === surfaceId && surface.kind === "chat"
-                  ? { ...surface, threadId }
+                  ? chatSurface(surface.id, threadId)
                   : surface,
               ),
             };

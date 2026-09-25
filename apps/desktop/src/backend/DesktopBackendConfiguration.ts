@@ -17,6 +17,7 @@ import serverPackageJson from "../../../server/package.json" with { type: "json"
 import * as DesktopBackendManager from "./DesktopBackendManager.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
+import { resolvePrimaryBackendHome } from "./DesktopSharedBackendHome.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
 import * as DesktopWslServerTree from "../wsl/DesktopWslServerTree.ts";
@@ -504,11 +505,22 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     const backendExposure = yield* serverExposure.backendConfig;
 
+    const primaryHome = resolvePrimaryBackendHome({
+      baseDir: environment.baseDir,
+      sharedHomeDir: environment.sharedBackendHomeDir,
+    });
+    if (primaryHome.sharedHomeBlocked) {
+      yield* Effect.logWarning(
+        "Another T3 backend is using the shared home; starting on the T3 Work home instead",
+        { sharedHomeDir: environment.sharedBackendHomeDir },
+      );
+    }
+
     const bootstrap = {
       mode: "desktop" as const,
       noBrowser: true,
       port: backendExposure.port,
-      t3Home: environment.baseDir,
+      t3Home: primaryHome.t3Home,
       host: backendExposure.bindHost,
       desktopBootstrapToken: input.bootstrapToken,
       tailscaleServeEnabled: backendExposure.tailscaleServeEnabled,

@@ -14,26 +14,38 @@ choice is stored locally under `t3work:work-mode:v1`.
 - **Work** hides coding controls: the header's actions, Open in, and Git
   controls; the terminal toggle, drawer, and shortcuts; the diff shortcut; the
   branch and worktree selectors; Pull Requests; and the terminal, diff,
-  pull request, and device surfaces in the right panel. Its sidebar is a folder
-  tree (`apps/web/src/components/work/WorkSidebar.tsx`). Folders are
-  client-side only: they record which folder each `environmentId:threadId` is
-  filed in and do not change server threads. Deleting a folder moves its
-  chats and subfolders up one level.
+  pull request, and device surfaces in the right panel; and the environment
+  and branch strip under the composer. Its sidebar is the legacy sidebar plus a
+  **Chats** section (`apps/web/src/components/LegacySidebar.tsx`,
+  `apps/web/src/components/work/workChats.logic.ts`). Dragging a thread, or
+  using its context menu, moves it out of its project into Chats or a folder
+  there, and back. Chats and its folders are client-side only: they record
+  where each `environmentId:threadId` sits and do not change server threads.
+  Deleting a folder moves its chats and subfolders up one level. The chat
+  header shows the machine icon for chats on another machine.
 
 In both modes, the right panel's **Chat** surface shows another chat from the
 same project beside the main thread
-(`apps/web/src/components/work/DockChatPanel.tsx`). It can start a new chat or
-open an existing one. It is a compact transcript and composer, not a second
-`ChatView`, because `ChatView` owns window-wide shortcuts and route-driven
-draft state. Approvals and questions are answered in the main view.
+(`apps/web/src/components/work/DockChatPanel.tsx`). Its picker starts a new
+chat or opens an existing one. It is a compact transcript above the real
+`ChatComposer`, not a second `ChatView`, because `ChatView` owns window-wide
+shortcuts and route-driven draft state. Composer shortcuts belong to whichever
+composer holds focus (`apps/web/src/components/chat/composerEventScope.ts`).
+Questions are answered in the main view.
 
 ## Mac app
 
 The packaged app is `T3 Work` with bundle ID `com.volumbe.t3code`. Earlier
 builds were named `T3 Code (Vivek)`; the rename keeps the same bundle ID and
 data directories, so saved connections carry over.
-It stores its desktop state in `~/.t3-vivek/userdata` and its Electron data in
-`~/Library/Application Support/t3code-vivek`. It does not register as the
+It stores its desktop state (saved connections, client settings) in
+`~/.t3-vivek/userdata` and its Electron data in
+`~/Library/Application Support/t3code-vivek`. Its local backend uses the
+upstream app's `~/.t3` server state, so local threads appear in both apps
+(`apps/desktop/src/backend/DesktopSharedBackendHome.ts`). Never run the two
+apps' local backends at once: when the upstream app's backend is running, T3
+Work starts its local backend on `~/.t3-vivek` instead and shows no local
+threads until it is relaunched with the upstream app closed. It does not register as the
 macOS handler for `t3code://` links, so the upstream app can stay installed.
 The local build has no automatic update feed. Rebuild it when this fork moves
 to a newer upstream release.
@@ -48,7 +60,9 @@ sips -s format png assets/vivek/office-vo-macos.svg \
 ```
 
 Install dependencies with `vp i`. Build the macOS app at the release version
-used by the connected Ubuntu server:
+used by the connected Ubuntu server. Keep the repository's `node_modules/.bin`
+first on `PATH`: the build installs into a staging folder without
+`node_modules`, and a global `vp` shim there can recurse through `pnpm exec`:
 
 ```sh
 PATH="$PWD/node_modules/.bin:$HOME/.cargo/bin:$PATH" \
@@ -71,7 +85,7 @@ Apple signing and notarization. On first launch, turn off the local environment
 in Settings > Connections, then pair the private `ubuntu` environment. The
 fork has separate saved connections and needs its own pairing. Do not copy
 credentials between the two apps. This Mac's local environment was turned off
-before first launch.
+before first launch; turn it back on to show the shared local threads.
 
 ## Taking upstream releases
 

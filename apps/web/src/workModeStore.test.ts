@@ -2,13 +2,15 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildWorkFolderTree,
+  CHATS_ROOT,
   createFolder,
   deleteFolder,
   initialWorkModeData,
   moveFolder,
-  moveThreadsToFolder,
+  moveThreadsToChats,
   renameFolder,
-  resolveThreadFolderId,
+  resolveThreadPlacement,
+  returnThreadsToProjects,
   type WorkModeData,
 } from "./workModeStore";
 
@@ -48,30 +50,35 @@ describe("work folders", () => {
     );
   });
 
-  it("moves a deleted folder's contents to its parent", () => {
+  it("moves a deleted folder's contents to its parent, then to the top of Chats", () => {
     let data = withFolders();
-    data = moveThreadsToFolder(data, ["env:t1"], "b");
-    data = moveThreadsToFolder(data, ["env:t2"], "a");
+    data = moveThreadsToChats(data, ["env:t1"], "b");
+    data = moveThreadsToChats(data, ["env:t2"], "a");
     data = deleteFolder(data, "b");
     expect(data.folders.find((folder) => folder.id === "c")?.parentId).toBe("a");
     expect(data.threadFolderByKey).toEqual({ "env:t1": "a", "env:t2": "a" });
 
     data = deleteFolder(data, "a");
-    expect(data.threadFolderByKey).toEqual({});
+    expect(data.threadFolderByKey).toEqual({ "env:t1": CHATS_ROOT, "env:t2": CHATS_ROOT });
     expect(data.folders.find((folder) => folder.id === "c")?.parentId).toBe(null);
   });
 
-  it("files and unfiles threads", () => {
-    let data = moveThreadsToFolder(withFolders(), ["env:t1", "env:t2"], "c");
-    expect(resolveThreadFolderId(data, "env:t1")).toBe("c");
-    data = moveThreadsToFolder(data, ["env:t1"], null);
-    expect(resolveThreadFolderId(data, "env:t1")).toBe(null);
-    expect(moveThreadsToFolder(data, ["env:t2"], "missing")).toBe(data);
+  it("moves threads between projects, the top of Chats, and folders", () => {
+    let data = withFolders();
+    expect(resolveThreadPlacement(data, "env:t1")).toEqual({ kind: "project" });
+    data = moveThreadsToChats(data, ["env:t1", "env:t2"], "c");
+    expect(resolveThreadPlacement(data, "env:t1")).toEqual({ kind: "chats", folderId: "c" });
+    data = moveThreadsToChats(data, ["env:t1"], null);
+    expect(resolveThreadPlacement(data, "env:t1")).toEqual({ kind: "chats", folderId: null });
+    expect(moveThreadsToChats(data, ["env:t2"], "missing")).toBe(data);
+    data = returnThreadsToProjects(data, ["env:t1"]);
+    expect(resolveThreadPlacement(data, "env:t1")).toEqual({ kind: "project" });
+    expect(returnThreadsToProjects(data, ["env:t1"])).toBe(data);
   });
 
-  it("treats a filing into an unknown folder as unfiled", () => {
+  it("shows a thread filed in an unknown folder at the top of Chats", () => {
     const data = { ...withFolders(), threadFolderByKey: { "env:t1": "gone" } };
-    expect(resolveThreadFolderId(data, "env:t1")).toBe(null);
+    expect(resolveThreadPlacement(data, "env:t1")).toEqual({ kind: "chats", folderId: null });
   });
 
   it("builds a name-sorted tree and lifts orphans to the top level", () => {

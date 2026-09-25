@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { ComposerHandleContext, type ComposerHandleRef } from "../../composerHandleContext";
 import {
+  composerOwnsShortcutEvent,
   isInsideCollapsedComposerControls,
   isInsideComposerFloatingLayer,
   isInsideRestingComposerControlScope,
@@ -116,5 +117,48 @@ describe("composer event scopes", () => {
       false,
     );
     expect(isInsideCollapsedComposerControls(null)).toBe(false);
+  });
+});
+
+class FakeTreeNode {
+  constructor(
+    readonly parent: FakeTreeNode | null,
+    private readonly selector: string | null = null,
+  ) {}
+
+  closest(selector: string): FakeTreeNode | null {
+    for (let node: FakeTreeNode | null = this; node; node = node.parent) {
+      if (node.selector === selector) return node;
+    }
+    return null;
+  }
+
+  contains(other: FakeTreeNode): boolean {
+    for (let node: FakeTreeNode | null = other; node; node = node.parent) {
+      if (node === this) return true;
+    }
+    return false;
+  }
+}
+
+describe("composer shortcut ownership", () => {
+  it("gives a focus-scoped composer only the events from inside it", () => {
+    vi.stubGlobal("Element", FakeTreeNode);
+    vi.stubGlobal("Node", FakeTreeNode);
+    const body = new FakeTreeNode(null);
+    const mainForm = new FakeTreeNode(body);
+    const mainEditor = new FakeTreeNode(mainForm);
+    const dockScope = new FakeTreeNode(body, '[data-chat-composer-focus-scope="true"]');
+    const dockForm = new FakeTreeNode(dockScope);
+    const dockEditor = new FakeTreeNode(dockForm);
+    const owns = (form: FakeTreeNode, target: FakeTreeNode) =>
+      composerOwnsShortcutEvent(form as unknown as Element, target as unknown as EventTarget);
+
+    expect(owns(mainForm, mainEditor)).toBe(true);
+    expect(owns(mainForm, body)).toBe(true);
+    expect(owns(mainForm, dockEditor)).toBe(false);
+    expect(owns(dockForm, dockEditor)).toBe(true);
+    expect(owns(dockForm, mainEditor)).toBe(false);
+    expect(owns(dockForm, body)).toBe(false);
   });
 });

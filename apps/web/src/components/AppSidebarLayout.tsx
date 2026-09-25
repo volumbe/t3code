@@ -22,7 +22,6 @@ import {
 } from "../panelAnimations";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
-import WorkSidebar from "./work/WorkSidebar";
 import { useIsWorkMode } from "../workModeStore";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
@@ -250,9 +249,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               <SidebarChromeHeader isElectron={isElectron} />
               <SettingsSidebarNav pathname={pathname} />
             </>
-          ) : isWorkMode ? (
-            <WorkSidebar />
-          ) : legacySidebarEnabled ? (
+          ) : isWorkMode || legacySidebarEnabled ? (
+            // Work mode always uses the legacy sidebar, which adds its Chats section.
             <LegacyThreadSidebar />
           ) : (
             <ThreadSidebar />

@@ -4,7 +4,6 @@ import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { deriveDockChatTitle, listDockChatCandidates } from "./DockChatPanel";
-import { groupThreadsByFolder } from "./WorkSidebar";
 
 const environmentId = "env-1" as EnvironmentId;
 
@@ -44,27 +43,5 @@ describe("listDockChatCandidates", () => {
       scopeThreadRef(environmentId, ThreadId.make("host")),
     );
     expect(candidates.map((thread) => thread.id)).toEqual(["new", "old"]);
-  });
-});
-
-describe("groupThreadsByFolder", () => {
-  it("files threads by folder and treats unknown folders as unfiled", () => {
-    const folders = [
-      { id: "f1", name: "Clients", parentId: null, createdAt: "2026-09-01T00:00:00.000Z" },
-    ];
-    const { byFolderId, unfiled } = groupThreadsByFolder(
-      [
-        shell("a"),
-        shell("b"),
-        shell("c"),
-        shell("gone", { archivedAt: "2026-09-02T00:00:00.000Z" }),
-      ],
-      {
-        folders,
-        threadFolderByKey: { "env-1:a": "f1", "env-1:b": "missing" },
-      },
-    );
-    expect(byFolderId.get("f1")?.map((thread) => thread.id)).toEqual(["a"]);
-    expect(unfiled.map((thread) => thread.id).toSorted()).toEqual(["b", "c"]);
   });
 });
