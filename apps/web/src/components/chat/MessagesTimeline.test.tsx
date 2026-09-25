@@ -8,6 +8,8 @@ import {
 } from "@t3tools/contracts";
 import { act, createRef, useLayoutEffect, type ReactNode, type Ref } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
+import { toKindScopedComposerContextId } from "~/lib/composerContextReferences";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { LegendListRef, MaintainScrollAtEndOptions } from "@legendapp/list/react";
@@ -766,6 +768,48 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-queued-message-id="queued-1"');
     expect(markup).toContain("<strong>double-check</strong>");
     expect(markup).not.toContain("**double-check**");
+  });
+
+  it("renders a queued message's images as thumbnails and resolved chips", () => {
+    const image = {
+      type: "image" as const,
+      id: "queued-shot",
+      name: "shot.png",
+      mimeType: "image/png",
+      sizeBytes: 3,
+      previewUrl: "blob:queued-shot",
+      file: new File(["png"], "shot.png", { type: "image/png" }),
+    };
+    const reference = formatComposerContextReference({
+      kind: "image",
+      contextId: toKindScopedComposerContextId("image", image.id),
+      label: image.name,
+    });
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[buildUserTimelineEntry("First prompt.")]}
+        queuedMessages={[
+          {
+            id: "queued-1",
+            prompt: `Look at ${reference}`,
+            images: [image],
+            files: [],
+            terminalContexts: [],
+            previewAnnotations: [],
+            reviewComments: [],
+            submissionIntent: "foreground",
+            queuedAfterToolActivityId: null,
+            createdAt: "2026-09-25T12:00:00.000Z",
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('src="blob:queued-shot"');
+    // The unavailable-context chip draws a dashed circle; a resolved image chip does not.
+    expect(markup).not.toContain("lucide-circle-dashed");
+    expect(markup).not.toContain("1 attachment");
   });
 
   it("gives browser documents separate preview and download controls", () => {

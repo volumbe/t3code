@@ -204,6 +204,7 @@ import {
 } from "../contextChipParts";
 import {
   asKnownContextRecord,
+  buildMessageContext,
   isPullRequestSummaryContext,
   pullRequestContextDisplayState,
   pullRequestContextKindLabel,
@@ -1500,25 +1501,58 @@ function WorktreeSetupTimelineRow({
 }
 
 /** A message waiting for the running turn: a dashed user bubble with icon actions inside it. */
-const ignoreQueuedContextAction = () => {};
-
-/**
- * A queued message's context records are built only when it sends, so its
- * inline references render from their labels until then.
- */
-function renderQueuedContextReference(reference: ChatMarkdownContextReference): ReactNode {
+/** The sent message's image thumbnails, opening the image viewer on click. */
+function UserMessageMediaGrid(props: {
+  images: ReadonlyArray<ChatImageAttachment>;
+  children?: ReactNode;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const { images } = props;
   return (
-    <UserMessageContextReferenceChip
-      reference={reference}
-      record={undefined}
-      annotationImage={null}
-      attachment={null}
-      onExpandImage={ignoreQueuedContextAction}
-      onExpandVideo={ignoreQueuedContextAction}
-      onOpenFile={ignoreQueuedContextAction}
-    />
+    <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
+      {images.map((image) => (
+        <div
+          key={image.id}
+          className={cn(
+            "bg-background/70",
+            image.source?.kind === "snap-shot" && image.previewUrl
+              ? cn(SNAP_SHOT_ATTACHMENT_FRAME_CLASS, "col-span-2")
+              : "aspect-[4/3] overflow-hidden rounded-lg border border-border/80",
+          )}
+        >
+          {image.previewUrl ? (
+            <button
+              type="button"
+              className="block h-full w-full cursor-zoom-in"
+              aria-label={`Preview ${image.name}`}
+              onClick={() => {
+                const preview = buildExpandedImagePreview(images, image.id);
+                if (!preview) return;
+                ctx.onImageExpand(preview);
+              }}
+            >
+              <img
+                src={image.previewUrl}
+                alt={image.name}
+                className="block size-full object-cover"
+              />
+            </button>
+          ) : (
+            <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-secondary-label text-[11px]">
+              {image.name}
+            </div>
+          )}
+          {image.previewUrl && image.source?.kind === "snap-shot" ? (
+            <SnapShotAttachmentDetails source={image.source} />
+          ) : null}
+        </div>
+      ))}
+      {props.children}
+    </div>
   );
 }
+
+const ignoreQueuedFileAction = (_file: ChatFileAttachment) => {};
 
 function QueuedMessageTimelineRow({
   row,
@@ -1526,13 +1560,64 @@ function QueuedMessageTimelineRow({
   row: Extract<TimelineRow, { kind: "queued-message" }>;
 }) {
   const ctx = use(TimelineRowCtx);
+  const { onImageExpand } = ctx;
   const { queuedMessage } = row;
-  const attachmentCount = queuedMessage.images.length + queuedMessage.files.length;
-  const contextCount =
-    queuedMessage.terminalContexts.length +
-    queuedMessage.previewAnnotations.length +
-    queuedMessage.reviewComments.length;
   const text = queuedMessage.prompt.trim();
+  // A queued message has no server records yet. Its drafts build the same
+  // records a send would, with local previews standing in for uploads, so its
+  // chips and thumbnails match the sent message.
+  const recordsById = useMemo(() => {
+    const context = buildMessageContext({
+      terminalContexts: queuedMessage.terminalContexts,
+      reviewComments: queuedMessage.reviewComments,
+      previewAnnotations: queuedMessage.previewAnnotations,
+      attachments: [...queuedMessage.images, ...queuedMessage.files].map((attachment) => ({
+        attachment,
+        attachmentId: attachment.id,
+      })),
+    });
+    return new Map<string, ComposerContextRecord>(
+      (context?.records ?? []).map((record) => [record.contextId, record]),
+    );
+  }, [queuedMessage]);
+  const renderContextReference = useCallback(
+    (reference: ChatMarkdownContextReference) => {
+      const record = asKnownContextRecord(recordsById.get(reference.contextId));
+      const attachment =
+        record?.kind === "image"
+          ? (queuedMessage.images.find((image) => image.id === record.attachmentId) ?? null)
+          : record?.kind === "file"
+            ? (queuedMessage.files.find((file) => file.id === record.attachmentId) ?? null)
+            : null;
+      return (
+        <UserMessageContextReferenceChip
+          reference={reference}
+          record={record}
+          annotationImage={null}
+          attachment={attachment}
+          onExpandImage={(image) => {
+            const preview = buildExpandedImagePreview(queuedMessage.images, image.id);
+            if (preview) onImageExpand(preview);
+          }}
+          onOpenFile={ignoreQueuedFileAction}
+          onExpandVideo={ignoreQueuedFileAction}
+        />
+      );
+    },
+    [onImageExpand, queuedMessage.files, queuedMessage.images, recordsById],
+  );
+  const referencedContextIds = new Set(
+    collectComposerContextReferences(text).map((reference) => reference.contextId),
+  );
+  const regularImages = queuedMessage.images.filter(
+    (image) => !image.name.startsWith("preview-annotation-"),
+  );
+  // Images show as thumbnails; anything else the prose does not reference is counted.
+  const unreferencedRecords = [...recordsById.values()].filter(
+    (record) => record.kind !== "image" && !referencedContextIds.has(record.contextId),
+  );
+  const attachmentCount = unreferencedRecords.filter((record) => record.kind === "file").length;
+  const contextCount = unreferencedRecords.length - attachmentCount;
   const statusLabel = queuedMessage.holdUntilUserAction
     ? "Waits for Send now"
     : row.isNext
@@ -1541,10 +1626,11 @@ function QueuedMessageTimelineRow({
   return (
     <div className="flex flex-col items-end" data-queued-message-id={queuedMessage.id}>
       <div className="max-w-[80%] rounded-2xl border border-dashed border-border p-3 text-message-foreground/80">
+        {regularImages.length > 0 ? <UserMessageMediaGrid images={regularImages} /> : null}
         {text.length > 0 ? (
           <CollapsibleUserMessageBody
             text={text}
-            renderContextReference={renderQueuedContextReference}
+            renderContextReference={renderContextReference}
             skills={ctx.skills}
             markdownCwd={ctx.markdownCwd}
           />
@@ -1861,48 +1947,11 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
-          <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
-            {regularImages.map((image) => (
-              <div
-                key={image.id}
-                className={cn(
-                  "bg-background/70",
-                  image.source?.kind === "snap-shot" && image.previewUrl
-                    ? cn(SNAP_SHOT_ATTACHMENT_FRAME_CLASS, "col-span-2")
-                    : "aspect-[4/3] overflow-hidden rounded-lg border border-border/80",
-                )}
-              >
-                {image.previewUrl ? (
-                  <button
-                    type="button"
-                    className="block h-full w-full cursor-zoom-in"
-                    aria-label={`Preview ${image.name}`}
-                    onClick={() => {
-                      const preview = buildExpandedImagePreview(regularImages, image.id);
-                      if (!preview) return;
-                      ctx.onImageExpand(preview);
-                    }}
-                  >
-                    <img
-                      src={image.previewUrl}
-                      alt={image.name}
-                      className="block size-full object-cover"
-                    />
-                  </button>
-                ) : (
-                  <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-secondary-label text-[11px]">
-                    {image.name}
-                  </div>
-                )}
-                {image.previewUrl && image.source?.kind === "snap-shot" ? (
-                  <SnapShotAttachmentDetails source={image.source} />
-                ) : null}
-              </div>
-            ))}
+          <UserMessageMediaGrid images={regularImages}>
             {userVideos.map((file) => (
               <UserVideoAttachment key={file.id} file={file} />
             ))}
-          </div>
+          </UserMessageMediaGrid>
         )}
         {unchippedFiles.length > 0 || unknownAttachments.length > 0 ? (
           <div className="mb-2 flex flex-col gap-1">
