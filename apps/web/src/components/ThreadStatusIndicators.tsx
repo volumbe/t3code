@@ -14,7 +14,19 @@ import {
   visibleThreadPullRequests,
   type ThreadPullRequestBadge,
 } from "@t3tools/shared/threadPullRequests";
-import { FolderGit2Icon, GitPullRequestArrowIcon, LayersIcon, TerminalIcon } from "lucide-react";
+import {
+  CircleAlertIcon,
+  CircleDashedIcon,
+  EyeIcon,
+  FolderGit2Icon,
+  GitPullRequestArrowIcon,
+  LayersIcon,
+  ListChecksIcon,
+  type LucideIcon,
+  MessageCircleQuestionIcon,
+  ShieldQuestionIcon,
+  TerminalIcon,
+} from "lucide-react";
 import { useMemo, type MouseEvent } from "react";
 import { buttonVariants, InlineButton } from "./ui/button";
 import { cn } from "../lib/utils";
@@ -471,6 +483,69 @@ export function ThreadStatusLabel({
       </TooltipTrigger>
       <TooltipPopup side="top">{status.label}</TooltipPopup>
     </Tooltip>
+  );
+}
+
+// Work mode's row status: one icon at the end of the row, no label. Motion
+// marks agent activity (Working turns, Monitoring blinks), states that wait on
+// the user hold still, and an unseen completion is a plain dot (`Icon: null`).
+const THREAD_STATUS_ICONS: Record<
+  ThreadStatusPill["label"],
+  { Icon: LucideIcon | null; className: string }
+> = {
+  "Pending Approval": {
+    Icon: ShieldQuestionIcon,
+    className: "text-amber-600 dark:text-amber-300/90",
+  },
+  "Awaiting Input": {
+    Icon: MessageCircleQuestionIcon,
+    className: "text-indigo-600 dark:text-indigo-300/90",
+  },
+  Working: {
+    Icon: CircleDashedIcon,
+    className: "text-sky-600 motion-safe:animate-status-spin dark:text-sky-300/90",
+  },
+  Connecting: {
+    Icon: CircleDashedIcon,
+    className: "text-sky-600/55 motion-safe:animate-status-spin dark:text-sky-300/50",
+  },
+  Failed: {
+    Icon: CircleAlertIcon,
+    className: "text-red-600 dark:text-red-300/90",
+  },
+  "Plan Ready": {
+    Icon: ListChecksIcon,
+    className: "text-violet-600 dark:text-violet-300/90",
+  },
+  Monitoring: {
+    Icon: EyeIcon,
+    className: "text-foreground/75 motion-safe:animate-status-blink",
+  },
+  Completed: {
+    Icon: null,
+    className: "bg-emerald-500 dark:bg-emerald-300/90",
+  },
+};
+
+/**
+ * Icon-only thread status for Work mode rows. It sits in the row's trailing
+ * meta slot, which ignores the pointer and yields to the archive button on
+ * hover, so the label is carried by `aria-label` rather than a tooltip.
+ */
+export function ThreadStatusIcon({ status }: { status: ThreadStatusPill }) {
+  const { Icon, className } = THREAD_STATUS_ICONS[status.label];
+  return (
+    <span
+      role="img"
+      aria-label={status.label}
+      className="inline-flex size-4 shrink-0 items-center justify-center"
+    >
+      {Icon ? (
+        <Icon aria-hidden className={cn("size-3.5", className)} />
+      ) : (
+        <span className={cn("size-2 rounded-full", className)} />
+      )}
+    </span>
   );
 }
 

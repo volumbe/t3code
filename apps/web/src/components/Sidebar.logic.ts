@@ -512,6 +512,7 @@ export interface ThreadStatusPill {
     | "Monitoring"
     | "Connecting"
     | "Completed"
+    | "Failed"
     | "Pending Approval"
     | "Awaiting Input"
     | "Plan Ready";
@@ -521,13 +522,15 @@ export interface ThreadStatusPill {
 }
 
 // Rollup order mirrors the per-thread resolver exactly: attention states,
-// then active work, then the actionable plan prompt, then passive
-// monitoring. A Monitoring sibling must never hide a Plan Ready thread.
+// then active work, then a failed session, then the actionable plan prompt,
+// then passive monitoring. A Monitoring sibling must never hide a Plan Ready
+// thread.
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 6,
-  "Awaiting Input": 5,
-  Working: 4,
-  Connecting: 4,
+  "Pending Approval": 7,
+  "Awaiting Input": 6,
+  Working: 5,
+  Connecting: 5,
+  Failed: 4,
   "Plan Ready": 3,
   Monitoring: 2,
   Completed: 1,
@@ -1020,6 +1023,17 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: true,
+    };
+  }
+
+  // A failed session outranks the plan prompt and lingering background
+  // liveness, matching resolveSidebarThreadStatus: the failure must show.
+  if (thread.session?.status === "error") {
+    return {
+      label: "Failed",
+      colorClass: "text-red-600 dark:text-red-300/90",
+      dotClass: "bg-red-500 dark:bg-red-300/90",
+      pulse: false,
     };
   }
 

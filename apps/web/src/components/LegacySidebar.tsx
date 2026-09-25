@@ -18,6 +18,7 @@ import {
   prStatusIndicator,
   PrStatusTooltipContent,
   terminalStatusFromRunningIds,
+  ThreadStatusIcon,
   ThreadStatusLabel,
   ThreadWorktreeIndicator,
   useLinkedThreadPullRequest,
@@ -461,6 +462,27 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? (remoteEnvLabel ?? (isDesktopLocalThread ? "Local" : "Remote"))
     : null;
   const isHighlighted = isActive || isSelected;
+  // Work mode leads the row with this glyph; Code mode keeps it in the meta
+  // slot beside the timestamp.
+  const remoteMachineIndicator =
+    isRemoteThread && !isDesktopLocalThread ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              aria-label={threadEnvironmentLabel ?? "Remote"}
+              className="inline-flex shrink-0 items-center justify-center"
+            />
+          }
+        >
+          <EnvironmentMachineIcon
+            kind={remoteMachine}
+            className="size-3 text-muted-foreground/40"
+          />
+        </TooltipTrigger>
+        <TooltipPopup side="top">{threadEnvironmentLabel}</TooltipPopup>
+      </Tooltip>
+    ) : null;
   const handleOpenDiscoveredPort = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       const port = discoveredPorts[0];
@@ -791,8 +813,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         onContextMenu={handleRowContextMenu}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          {isWorkMode ? null : prIndicator}
-          {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+          {isWorkMode ? remoteMachineIndicator : prIndicator}
+          {!isWorkMode && threadStatus && <ThreadStatusLabel status={threadStatus} />}
           {renamingThreadKey === threadKey ? (
             <input
               ref={handleRenameInputRef}
@@ -926,24 +948,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             ) : null}
             <span className={threadMetaClassName}>
               <span className="inline-flex items-center gap-1">
-                {isRemoteThread && !isDesktopLocalThread && (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span
-                          aria-label={threadEnvironmentLabel ?? "Remote"}
-                          className="inline-flex items-center justify-center"
-                        />
-                      }
-                    >
-                      <EnvironmentMachineIcon
-                        kind={remoteMachine}
-                        className="size-3 text-muted-foreground/40"
-                      />
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">{threadEnvironmentLabel}</TooltipPopup>
-                  </Tooltip>
-                )}
+                {isWorkMode ? null : remoteMachineIndicator}
                 {jumpLabel ? (
                   <Tooltip>
                     <TooltipTrigger
@@ -958,7 +963,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     </TooltipTrigger>
                     <TooltipPopup side="top">{jumpLabel}</TooltipPopup>
                   </Tooltip>
-                ) : isWorkMode ? null : (
+                ) : isWorkMode ? (
+                  threadStatus && <ThreadStatusIcon status={threadStatus} />
+                ) : (
                   <span
                     className={`text-[10px] tabular-nums ${
                       isHighlighted ? "text-foreground" : "text-secondary-label"
