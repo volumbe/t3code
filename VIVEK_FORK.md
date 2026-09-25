@@ -26,9 +26,9 @@ choice is stored locally under `t3work:work-mode:v1`.
   Chats. The chat header shows the machine icon for chats on another machine.
   Work chat rows start with that machine icon and end with one status icon, no
   label (`ThreadStatusIcon` in `apps/web/src/components/ThreadStatusIndicators.tsx`):
-  a rotating dashed circle for Working and Connecting, a blinking eye for
-  Monitoring, still icons for approval, input, Plan Ready, and Failed, and a
-  dot for an unseen completion. The animations stop under Reduce Motion.
+  a rotating dashed circle for Working and Connecting (still under Reduce
+  Motion), still icons for Monitoring (an eye), approval, input, Plan Ready,
+  and Failed, and a dot for an unseen completion.
 
 In both modes, the right panel's **Chat** surface shows another chat from the
 same project beside the main thread

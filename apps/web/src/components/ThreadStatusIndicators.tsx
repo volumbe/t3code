@@ -486,9 +486,9 @@ export function ThreadStatusLabel({
   );
 }
 
-// Work mode's row status: one icon at the end of the row, no label. Motion
-// marks agent activity (Working turns, Monitoring blinks), states that wait on
-// the user hold still, and an unseen completion is a plain dot (`Icon: null`).
+// Work mode's row status: one icon at the end of the row, no label. Only
+// active work (Working, Connecting) turns; every other state holds still, and
+// an unseen completion is a plain dot (`Icon: null`).
 const THREAD_STATUS_ICONS: Record<
   ThreadStatusPill["label"],
   { Icon: LucideIcon | null; className: string }
@@ -519,7 +519,7 @@ const THREAD_STATUS_ICONS: Record<
   },
   Monitoring: {
     Icon: EyeIcon,
-    className: "text-foreground/75 motion-safe:animate-status-blink",
+    className: "text-foreground/75",
   },
   Completed: {
     Icon: null,
