@@ -3,18 +3,18 @@ import { ThreadId } from "@t3tools/contracts";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import type { SidebarThreadSummary } from "../../types";
-import { CHATS_ROOT, initialWorkModeData, useWorkModeStore } from "../../workModeStore";
+import { initialWorkModeData, useWorkModeStore } from "../../workModeStore";
 import {
   applyWorkThreadMenuAction,
   buildWorkThreadMenuItems,
-  groupChatsThreads,
+  groupWorkThreads,
 } from "./workChats.logic";
 
 const environmentId = "env-1" as EnvironmentId;
 const createdAt = "2026-09-01T00:00:00.000Z";
-const folders = [
-  { id: "f1", name: "Clients", parentId: null, createdAt },
-  { id: "f2", name: "Acme", parentId: "f1", createdAt },
+const projects = [
+  { id: "p1", name: "Clients", parentId: null, createdAt },
+  { id: "p2", name: "Acme", parentId: "p1", createdAt },
 ];
 
 function thread(id: string, overrides: Partial<SidebarThreadSummary> = {}): SidebarThreadSummary {
@@ -34,72 +34,61 @@ afterEach(() => {
   useWorkModeStore.setState({ ...initialWorkModeData, editingFolderId: null });
 });
 
-describe("groupChatsThreads", () => {
-  it("keeps project threads out and shows unknown folders at the top of Chats", () => {
-    const groups = groupChatsThreads(
+describe("groupWorkThreads", () => {
+  it("puts filed threads in their project and everything else in Chats", () => {
+    const groups = groupWorkThreads(
       [thread("a"), thread("b"), thread("c"), thread("d", { archivedAt: createdAt })],
-      {
-        folders,
-        threadFolderByKey: { "env-1:a": "f2", "env-1:b": "gone", "env-1:d": CHATS_ROOT },
-      },
+      { folders: projects, threadFolderByKey: { "env-1:a": "p2", "env-1:b": "gone" } },
       "updated_at",
     );
-    expect(groups.byFolderId.get("f2")?.map((entry) => entry.id)).toEqual(["a"]);
-    expect(groups.root.map((entry) => entry.id)).toEqual(["b"]);
+    expect(groups.byProjectId.get("p2")?.map((entry) => entry.id)).toEqual(["a"]);
+    expect(groups.chats.map((entry) => entry.id).toSorted()).toEqual(["b", "c"]);
   });
 });
 
 describe("buildWorkThreadMenuItems", () => {
-  it("offers Move to Chats for project threads", () => {
-    const items = buildWorkThreadMenuItems({ folders, threadFolderByKey: {} }, ["env-1:a"]);
-    expect(items.map((item) => item.label)).toEqual(["Move to Chats", "Move to folder"]);
-    expect(items[1]?.children?.map((item) => item.label.trim())).toEqual([
+  it("offers projects for a chat", () => {
+    const items = buildWorkThreadMenuItems({ folders: projects, threadFolderByKey: {} }, [
+      "env-1:a",
+    ]);
+    expect(items.map((item) => item.label)).toEqual(["Move to project"]);
+    expect(items[0]?.children?.map((item) => item.label.trim())).toEqual([
       "Clients",
       "Acme",
-      "New folder",
+      "New project",
     ]);
   });
 
-  it("offers leaving a folder and returning to the project for filed threads", () => {
-    const items = buildWorkThreadMenuItems({ folders, threadFolderByKey: { "env-1:a": "f2" } }, [
-      "env-1:a",
+  it("offers removal for a filed thread and hides its current project", () => {
+    const items = buildWorkThreadMenuItems(
+      { folders: projects, threadFolderByKey: { "env-1:a": "p2" } },
+      ["env-1:a"],
+    );
+    expect(items.map((item) => item.label)).toEqual(["Move to project", "Remove from project"]);
+    expect(items[0]?.children?.map((item) => item.label.trim())).toEqual([
+      "Clients",
+      "New project",
     ]);
-    expect(items.map((item) => item.label)).toEqual([
-      "Move to folder",
-      "Move out of folder",
-      "Move back to project",
-    ]);
-    expect(items[0]?.children?.map((item) => item.label.trim())).toEqual(["Clients", "New folder"]);
   });
 
-  it("offers one Move to Chats entry for a mixed selection", () => {
-    const items = buildWorkThreadMenuItems({ folders, threadFolderByKey: { "env-1:a": "f2" } }, [
-      "env-1:a",
-      "env-1:b",
-    ]);
-    expect(items.map((item) => item.label)).toEqual(["Move to Chats", "Move to folder"]);
-  });
-
-  it("offers a new folder directly when none exist", () => {
+  it("offers a new project directly when none exist", () => {
     const items = buildWorkThreadMenuItems({ folders: [], threadFolderByKey: {} }, ["env-1:a"]);
-    expect(items.map((item) => item.label)).toEqual(["Move to Chats", "Move to new folder"]);
+    expect(items.map((item) => item.label)).toEqual(["Move to new project"]);
   });
 });
 
 describe("applyWorkThreadMenuAction", () => {
-  it("moves threads and ignores ids that are not Work entries", () => {
-    useWorkModeStore.setState({ folders });
+  it("files and removes threads and ignores other ids", () => {
+    useWorkModeStore.setState({ folders: projects });
     expect(applyWorkThreadMenuAction("rename", ["env-1:a"])).toBe(false);
-    expect(applyWorkThreadMenuAction("work:folder:f1", ["env-1:a"])).toBe(true);
-    expect(useWorkModeStore.getState().threadFolderByKey).toEqual({ "env-1:a": "f1" });
-    applyWorkThreadMenuAction("work:chats-root", ["env-1:a"]);
-    expect(useWorkModeStore.getState().threadFolderByKey).toEqual({ "env-1:a": CHATS_ROOT });
-    applyWorkThreadMenuAction("work:project", ["env-1:a"]);
+    expect(applyWorkThreadMenuAction("work:project:p1", ["env-1:a"])).toBe(true);
+    expect(useWorkModeStore.getState().threadFolderByKey).toEqual({ "env-1:a": "p1" });
+    applyWorkThreadMenuAction("work:remove-from-project", ["env-1:a"]);
     expect(useWorkModeStore.getState().threadFolderByKey).toEqual({});
   });
 
-  it("creates a folder, files the threads, and starts renaming it", () => {
-    applyWorkThreadMenuAction("work:new-folder", ["env-1:a"]);
+  it("creates a project, files the threads, and starts renaming it", () => {
+    applyWorkThreadMenuAction("work:new-project", ["env-1:a"]);
     const state = useWorkModeStore.getState();
     expect(state.folders).toHaveLength(1);
     expect(state.threadFolderByKey["env-1:a"]).toBe(state.folders[0]?.id);

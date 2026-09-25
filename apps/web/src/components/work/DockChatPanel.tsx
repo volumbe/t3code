@@ -43,7 +43,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 import { projectScriptCwd } from "@t3tools/shared/projectScripts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
-import { ExternalLinkIcon, MessageSquarePlusIcon } from "lucide-react";
+import { MessageSquarePlusIcon } from "lucide-react";
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ComposerHandleContext } from "~/composerHandleContext";
@@ -90,10 +90,9 @@ import { useThread, useThreadShell, useThreadShellsForProjectRefs } from "~/stat
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "~/state/server";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { DEFAULT_INTERACTION_MODE, type Thread } from "~/types";
-import { resolveThreadPlacement, useWorkModeStore } from "~/workModeStore";
+import { resolveThreadWorkProjectId, useWorkModeStore } from "~/workModeStore";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   buildRunningThreadTurnInterruptInput,
@@ -117,7 +116,6 @@ import {
 } from "../chat/composerEventScope";
 import { ExpandedImageDialog } from "../chat/ExpandedImageDialog";
 import { expandedImageKey, type ExpandedImagePreview } from "../chat/ExpandedImagePreview";
-import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
 export interface DockChatDefaults {
@@ -209,7 +207,6 @@ export function DockChatPanel(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-dock-chat>
-      <DockChatHeader threadRef={threadRef} />
       {threadRef ? (
         <DockChatTranscript
           threadRef={threadRef}
@@ -235,34 +232,6 @@ export function DockChatPanel(props: {
         scrollNodeRef={scrollNodeRef}
         onThreadCreated={selectThread}
       />
-    </div>
-  );
-}
-
-function DockChatHeader(props: { threadRef: ScopedThreadRef | null }) {
-  const navigate = useNavigate();
-  const thread = useThread(props.threadRef, DOCK_THREAD_OPTIONS);
-  const title = thread?.title ?? (props.threadRef ? "Loading…" : "New chat");
-  return (
-    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border/60 ps-3 pe-2">
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
-      {props.threadRef ? (
-        <Button
-          aria-label="Open in main view"
-          title="Open in main view"
-          size="icon-xs"
-          variant="ghost"
-          onClick={() => {
-            if (!props.threadRef) return;
-            void navigate({
-              to: "/$environmentId/$threadId",
-              params: buildThreadRouteParams(props.threadRef),
-            });
-          }}
-        >
-          <ExternalLinkIcon className="size-3.5" />
-        </Button>
-      ) : null}
     </div>
   );
 }
@@ -839,15 +808,12 @@ function DockChatComposer(props: {
     return null;
   };
 
-  /** Files a chat started beside a thread in Chats alongside it; project threads stay put. */
+  /** Files a chat started beside a thread in the host's Work project, if it has one. */
   const fileNewChat = (threadId: ThreadId) => {
     const workState = useWorkModeStore.getState();
-    const placement = resolveThreadPlacement(workState, scopedThreadKey(props.hostThreadRef));
-    if (placement.kind !== "chats") return;
-    workState.moveThreadsToChats(
-      [scopedThreadKey(scopeThreadRef(environmentId, threadId))],
-      placement.folderId,
-    );
+    const projectId = resolveThreadWorkProjectId(workState, scopedThreadKey(props.hostThreadRef));
+    if (projectId === null) return;
+    workState.fileThreads([scopedThreadKey(scopeThreadRef(environmentId, threadId))], projectId);
   };
 
   // The server-thread send path of ChatView's onSend, without the timeline-only

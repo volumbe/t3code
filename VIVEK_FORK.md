@@ -15,19 +15,20 @@ choice is stored locally under `t3work:work-mode:v1`.
   controls; the terminal toggle, drawer, and shortcuts; the diff shortcut; the
   branch and worktree selectors; Pull Requests; and the terminal, diff,
   pull request, and device surfaces in the right panel; and the environment
-  and branch strip under the composer. Its sidebar is the legacy sidebar plus a
-  **Chats** section (`apps/web/src/components/LegacySidebar.tsx`,
-  `apps/web/src/components/work/workChats.logic.ts`). Dragging a thread, or
-  using its context menu, moves it out of its project into Chats or a folder
-  there, and back. Chats and its folders are client-side only: they record
-  where each `environmentId:threadId` sits and do not change server threads.
-  Deleting a folder moves its chats and subfolders up one level. The chat
-  header shows the machine icon for chats on another machine.
+  and branch strip under the composer. Its sidebar has **Projects** that you
+  create, not tied to a repository, and **Chats**, every chat in none of them
+  (`apps/web/src/components/LegacySidebar.tsx`,
+  `apps/web/src/components/work/workChats.logic.ts`). Drag chats onto a project,
+  or use a chat's context menu, to file them; drop them on Chats to remove them.
+  Work projects are client-side only: they record which project each
+  `environmentId:threadId` is in and do not change server threads, which still
+  run in a repository project. Deleting a Work project moves its chats back to
+  Chats. The chat header shows the machine icon for chats on another machine.
 
 In both modes, the right panel's **Chat** surface shows another chat from the
 same project beside the main thread
-(`apps/web/src/components/work/DockChatPanel.tsx`). Its picker starts a new
-chat or opens an existing one. It is a compact transcript above the real
+(`apps/web/src/components/work/DockChatPanel.tsx`), with no header of its own.
+Its picker starts a new chat or opens an existing one. It is a transcript above the real
 `ChatComposer`, not a second `ChatView`, because `ChatView` owns window-wide
 shortcuts and route-driven draft state. Composer shortcuts belong to whichever
 composer holds focus (`apps/web/src/components/chat/composerEventScope.ts`).
@@ -76,12 +77,15 @@ the ZIP on this Mac:
 
 ```sh
 ditto -x -k release/T3-Work-0.0.42-arm64.zip /Applications
-codesign --force --deep --sign - '/Applications/T3 Work.app'
+codesign --force --deep --sign "Apple Development" '/Applications/T3 Work.app'
 codesign --verify --deep --strict '/Applications/T3 Work.app'
 ```
 
-The local app uses an ad hoc signature. Distribution to another Mac requires
-Apple signing and notarization. On first launch, turn off the local environment
+Sign with the Apple Development certificate, not ad hoc (`--sign -`). An ad hoc
+signature changes with every build, so macOS treats each build as a new app
+and asks again for the "t3code Safe Storage" keychain item even after "Always
+Allow". The certificate keeps the signature's designated requirement stable.
+Distribution to another Mac requires Developer ID signing and notarization. On first launch, turn off the local environment
 in Settings > Connections, then pair the private `ubuntu` environment. The
 fork has separate saved connections and needs its own pairing. Do not copy
 credentials between the two apps. This Mac's local environment was turned off

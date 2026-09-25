@@ -218,11 +218,9 @@ import {
 import {
   applyWorkThreadMenuAction,
   buildWorkThreadMenuItemsForKeys,
-  groupChatsThreads,
-  isWorkDrag,
-  isWorkDragFromChats,
-  readWorkDragPayload,
-  WORK_FOLDER_DRAG_TYPE,
+  groupWorkThreads,
+  isWorkThreadDrag,
+  readWorkThreadDrag,
   writeWorkThreadDrag,
 } from "./work/workChats.logic";
 import {
@@ -245,7 +243,6 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   easing: "ease-out",
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
-const EMPTY_CHATS_PLACEMENTS: Readonly<Record<string, string>> = {};
 const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> = {
   repository: "Group by repository",
   repository_path: "Group by repository path",
@@ -1786,23 +1783,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   // thread-list change).
   const sidebarThreadByKeyRef = useRef(sidebarThreadByKey);
   sidebarThreadByKeyRef.current = sidebarThreadByKey;
-  // Work mode lists threads moved into Chats there instead of under their project.
-  const chatsPlacementByKey = useWorkModeStore((state) =>
-    state.mode === "work" ? state.threadFolderByKey : EMPTY_CHATS_PLACEMENTS,
-  );
-  const projectThreads = useMemo(
-    () =>
-      chatsPlacementByKey === EMPTY_CHATS_PLACEMENTS
-        ? sidebarThreads
-        : sidebarThreads.filter(
-            (thread) =>
-              !(
-                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) in
-                chatsPlacementByKey
-              ),
-          ),
-    [chatsPlacementByKey, sidebarThreads],
-  );
+  const projectThreads = sidebarThreads;
   const projectPreferenceKeys = useMemo(() => projectExpansionPreferenceKeys(project), [project]);
   const projectExpanded = useUiStateStore((state) =>
     resolveProjectExpanded(state.projectExpandedById, projectPreferenceKeys),
@@ -3066,9 +3047,9 @@ interface SidebarProjectsContentProps {
   resolveLogicalProjectKey: (thread: SidebarThreadSummary) => string;
 }
 
-const WORK_FOLDER_INDENT_PX = 12;
+const WORK_PROJECT_INDENT_PX = 12;
 
-interface SidebarWorkChatsSectionProps {
+interface SidebarWorkSectionsProps {
   routeThreadKey: string | null;
   openPullRequestsInRightPanel: boolean;
   newThreadShortcutLabel: string | null;
@@ -3083,16 +3064,15 @@ interface SidebarWorkChatsSectionProps {
   resolveLogicalProjectKey: (thread: SidebarThreadSummary) => string;
 }
 
-type WorkDropTarget = { kind: "root" } | { kind: "folder"; folderId: string };
+/** Drop target: a Work project id, or null for Chats. */
+type WorkDropTarget = { projectId: string | null };
 
 /**
- * Work mode's Chats section: threads moved out of their projects, at the top
- * level or in user folders. Rows are the same `SidebarThreadRow`s the project
- * lists render.
+ * Work mode's sidebar body: user-created Projects, not tied to repositories,
+ * and Chats, every thread that is in none of them. Rows are the same
+ * `SidebarThreadRow`s the Code mode project lists render.
  */
-const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
-  props: SidebarWorkChatsSectionProps,
-) {
+const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWorkSectionsProps) {
   const {
     routeThreadKey,
     openPullRequestsInRightPanel,
@@ -3108,7 +3088,7 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
     resolveLogicalProjectKey,
   } = props;
   const threads = useThreadShells();
-  const projects = useProjects();
+  const repositoryProjects = useProjects();
   const { folders, threadFolderByKey, collapsedFolderIds, editingFolderId } = useWorkModeStore(
     useShallow((state) => ({
       folders: state.folders,
@@ -3138,10 +3118,10 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
   );
   const threadByKeyRef = useRef(threadByKey);
   threadByKeyRef.current = threadByKey;
-  const projectByScopedKey = useMemo(
+  const repositoryProjectByKey = useMemo(
     () =>
       new Map(
-        projects.map(
+        repositoryProjects.map(
           (project) =>
             [
               scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
@@ -3149,14 +3129,14 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
             ] as const,
         ),
       ),
-    [projects],
+    [repositoryProjects],
   );
   const groups = useMemo(
-    () => groupChatsThreads(threads, { folders, threadFolderByKey }, threadSortOrder),
+    () => groupWorkThreads(threads, { folders, threadFolderByKey }, threadSortOrder),
     [folders, threadFolderByKey, threadSortOrder, threads],
   );
-  const folderTree = useMemo(() => buildWorkFolderTree(folders), [folders]);
-  const collapsedFolderIdSet = useMemo(() => new Set(collapsedFolderIds), [collapsedFolderIds]);
+  const projectTree = useMemo(() => buildWorkFolderTree(folders), [folders]);
+  const collapsedProjectIds = useMemo(() => new Set(collapsedFolderIds), [collapsedFolderIds]);
 
   const controller = useSidebarThreadRowController({
     threadByKeyRef,
@@ -3165,7 +3145,7 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
     deleteThread,
     resolveThreadWorkspacePath: (thread) =>
       thread.worktreePath ??
-      projectByScopedKey.get(
+      repositoryProjectByKey.get(
         scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
       )?.workspaceRoot ??
       null,
@@ -3183,28 +3163,34 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
     };
   }, [dropTarget]);
 
-  /** New chat in the active thread's project, or a project picked from a menu. */
+  /**
+   * Every server thread needs a repository project to run in. New chats use
+   * the active thread's, the only one, or one picked from a menu.
+   */
   const createChat = useCallback(
-    (folderId: string | null, position: { x: number; y: number }) => {
+    (workProjectId: string | null, position: { x: number; y: number }) => {
       void (async () => {
         const activeThread = routeThreadKey ? threadByKeyRef.current.get(routeThreadKey) : null;
         let projectRef = activeThread
           ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
           : null;
-        if (!projectRef && projects.length === 1) {
-          projectRef = scopeProjectRef(projects[0]!.environmentId, projects[0]!.id);
+        if (!projectRef && repositoryProjects.length === 1) {
+          projectRef = scopeProjectRef(
+            repositoryProjects[0]!.environmentId,
+            repositoryProjects[0]!.id,
+          );
         }
         if (!projectRef) {
           const api = readLocalApi();
-          if (!api || projects.length === 0) return;
+          if (!api || repositoryProjects.length === 0) return;
           const clicked = await api.contextMenu.show(
-            projects.map((project) => ({
+            repositoryProjects.map((project) => ({
               id: scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
-              label: project.title,
+              label: `Run in ${project.title}`,
             })),
             position,
           );
-          const picked = clicked ? projectByScopedKey.get(clicked) : undefined;
+          const picked = clicked ? repositoryProjectByKey.get(clicked) : undefined;
           if (!picked) return;
           projectRef = scopeProjectRef(picked.environmentId, picked.id);
         }
@@ -3221,26 +3207,33 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
           );
           return;
         }
-        if (result.value) {
+        if (result.value && workProjectId !== null) {
           useWorkModeStore
             .getState()
-            .moveThreadsToChats(
+            .fileThreads(
               [scopedThreadKey(scopeThreadRef(projectRef.environmentId, result.value.threadId))],
-              folderId,
+              workProjectId,
             );
         }
       })();
     },
-    [handleNewThread, isMobile, projectByScopedKey, projects, routeThreadKey, setOpenMobile],
+    [
+      handleNewThread,
+      isMobile,
+      repositoryProjectByKey,
+      repositoryProjects,
+      routeThreadKey,
+      setOpenMobile,
+    ],
   );
 
-  const createFolder = useCallback((parentId: string | null) => {
+  const createProject = useCallback(() => {
     const store = useWorkModeStore.getState();
-    const folderId = store.createFolder("New folder", parentId);
-    store.setEditingFolderId(folderId);
+    const projectId = store.createFolder("New project", null);
+    store.setEditingFolderId(projectId);
   }, []);
 
-  const handleFolderContextMenu = useCallback(
+  const handleProjectContextMenu = useCallback(
     (node: WorkFolderNode, position: { x: number; y: number }) => {
       void (async () => {
         const api = readLocalApi();
@@ -3248,11 +3241,9 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
         const { folder } = node;
         const clicked = await api.contextMenu.show(
           [
-            { id: "new-chat", label: "New chat here" },
-            { id: "new-subfolder", label: "New folder inside" },
-            { id: "rename", label: "Rename folder", separatorBefore: true },
-            ...(folder.parentId !== null ? [{ id: "move-top", label: "Move to top level" }] : []),
-            { id: "delete", label: "Delete folder", destructive: true, icon: "trash" },
+            { id: "new-chat", label: "New chat in project" },
+            { id: "rename", label: "Rename project", separatorBefore: true },
+            { id: "delete", label: "Delete project", destructive: true, icon: "trash" },
           ],
           position,
         );
@@ -3261,23 +3252,14 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
           case "new-chat":
             createChat(folder.id, position);
             return;
-          case "new-subfolder":
-            createFolder(folder.id);
-            return;
           case "rename":
             store.setEditingFolderId(folder.id);
             return;
-          case "move-top":
-            store.moveFolder(folder.id, null);
-            return;
           case "delete": {
-            const parent = folder.parentId
-              ? store.folders.find((entry) => entry.id === folder.parentId)
-              : undefined;
             const confirmed = await api.dialogs.confirm(
               [
-                `Delete folder "${folder.name}"?`,
-                `Its chats and folders move to ${parent ? `"${parent.name}"` : "Chats"}. No chats are deleted.`,
+                `Delete project "${folder.name}"?`,
+                "Its chats move back to Chats. No chats are deleted.",
               ].join("\n"),
               { variant: "destructive" },
             );
@@ -3287,37 +3269,25 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
         }
       })();
     },
-    [createChat, createFolder],
+    [createChat],
   );
 
   const dropHandlers = useCallback(
     (target: WorkDropTarget) => ({
       onDragOver: (event: React.DragEvent) => {
-        if (!isWorkDrag(event.dataTransfer)) return;
+        if (!isWorkThreadDrag(event.dataTransfer)) return;
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = "move";
-        setDropTarget((current) =>
-          current?.kind === target.kind &&
-          (target.kind === "root" ||
-            (current.kind === "folder" && current.folderId === target.folderId))
-            ? current
-            : target,
-        );
+        setDropTarget((current) => (current?.projectId === target.projectId ? current : target));
       },
       onDrop: (event: React.DragEvent) => {
-        const payload = readWorkDragPayload(event.dataTransfer);
-        if (!payload) return;
+        const threadKeys = readWorkThreadDrag(event.dataTransfer);
+        if (!threadKeys) return;
         event.preventDefault();
         event.stopPropagation();
         setDropTarget(null);
-        const store = useWorkModeStore.getState();
-        const folderId = target.kind === "folder" ? target.folderId : null;
-        if (payload.kind === "threads") {
-          store.moveThreadsToChats(payload.threadKeys, folderId);
-        } else {
-          store.moveFolder(payload.folderId, folderId);
-        }
+        useWorkModeStore.getState().fileThreads(threadKeys, target.projectId);
       },
     }),
     [],
@@ -3353,7 +3323,7 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
         hiddenThreadStatus={null}
         orderedProjectThreadKeys={orderedThreadKeys}
         renderedThreads={renderedThreads}
-        showEmptyThreadState={false}
+        showEmptyThreadState={expanded && listThreads.length === 0}
         shouldShowThreadPanel={expanded || pinnedThread !== null}
         isThreadListExpanded={isThreadListExpanded}
         activeRouteThreadKey={routeThreadKey}
@@ -3386,23 +3356,14 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
     );
   };
 
-  const renderFolder = (node: WorkFolderNode): React.ReactNode => {
+  const renderProject = (node: WorkFolderNode): React.ReactNode => {
     const { folder } = node;
-    const expanded = !collapsedFolderIdSet.has(folder.id);
-    const isDropTarget = dropTarget?.kind === "folder" && dropTarget.folderId === folder.id;
-    const indentStyle = { paddingLeft: `${8 + node.depth * WORK_FOLDER_INDENT_PX}px` };
+    const expanded = !collapsedProjectIds.has(folder.id);
+    const isDropTarget = dropTarget?.projectId === folder.id;
+    const indentStyle = { paddingLeft: `${8 + node.depth * WORK_PROJECT_INDENT_PX}px` };
     return (
       <SidebarMenuItem key={folder.id} className="rounded-md">
-        <div
-          className="group/project-header relative"
-          draggable={editingFolderId !== folder.id}
-          onDragStart={(event) => {
-            event.stopPropagation();
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData(WORK_FOLDER_DRAG_TYPE, folder.id);
-          }}
-          {...dropHandlers({ kind: "folder", folderId: folder.id })}
-        >
+        <div className="group/project-header relative" {...dropHandlers({ projectId: folder.id })}>
           {editingFolderId === folder.id ? (
             <div
               className="flex h-8 w-full items-center gap-[var(--sidebar-control-gap)] pr-2"
@@ -3412,7 +3373,7 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
                 className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 ${expanded ? "rotate-90" : ""}`}
               />
               <FolderIcon className="size-3.5 shrink-0 text-icon-muted" />
-              <WorkFolderNameInput
+              <WorkProjectNameInput
                 initialName={folder.name}
                 onCommit={(name) => {
                   const store = useWorkModeStore.getState();
@@ -3432,7 +3393,7 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
               onDoubleClick={() => useWorkModeStore.getState().setEditingFolderId(folder.id)}
               onContextMenu={(event) => {
                 event.preventDefault();
-                handleFolderContextMenu(node, { x: event.clientX, y: event.clientY });
+                handleProjectContextMenu(node, { x: event.clientX, y: event.clientY });
               }}
             >
               <ChevronRightIcon
@@ -3477,12 +3438,12 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
           ) : null}
         </div>
         {expanded && node.children.length > 0 ? (
-          <SidebarMenu className="mt-1">{node.children.map(renderFolder)}</SidebarMenu>
+          <SidebarMenu className="mt-1">{node.children.map(renderProject)}</SidebarMenu>
         ) : null}
-        <div style={{ paddingLeft: `${node.depth * WORK_FOLDER_INDENT_PX}px` }}>
+        <div style={{ paddingLeft: `${node.depth * WORK_PROJECT_INDENT_PX}px` }}>
           {renderThreadList(
-            `work-folder:${folder.id}`,
-            groups.byFolderId.get(folder.id) ?? [],
+            `work-project:${folder.id}`,
+            groups.byProjectId.get(folder.id) ?? [],
             expanded,
           )}
         </div>
@@ -3490,34 +3451,44 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
     );
   };
 
-  const isEmpty = folderTree.length === 0 && groups.root.length === 0;
-  const isRootDropTarget = dropTarget?.kind === "root";
+  const isChatsDropTarget = dropTarget !== null && dropTarget.projectId === null;
 
   return (
-    <SidebarGroup
-      className={`px-2 py-2 transition-colors${isRootDropTarget ? " rounded-md bg-sidebar-row-hover/60" : ""}`}
-      data-testid="work-chats-section"
-      {...dropHandlers({ kind: "root" })}
-    >
-      <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
-        <span className="text-xs font-medium text-sidebar-muted-foreground/80">Chats</span>
-        <div className="flex items-center gap-1">
+    <>
+      <SidebarGroup className="px-2 py-2" data-testid="work-projects-section">
+        <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
+          <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
                   size="icon-xs"
                   variant="ghost-muted"
-                  aria-label="New folder"
+                  aria-label="New project"
                   className="size-6 [--control-icon-color:currentColor] text-icon-muted"
-                  onClick={() => createFolder(null)}
+                  onClick={createProject}
                 />
               }
             >
               <FolderPlusIcon className="size-3.5" />
             </TooltipTrigger>
-            <TooltipPopup side="right">New folder</TooltipPopup>
+            <TooltipPopup side="right">New project</TooltipPopup>
           </Tooltip>
+        </div>
+        <SidebarMenu>{projectTree.map(renderProject)}</SidebarMenu>
+        {projectTree.length === 0 ? (
+          <div className="px-2 pt-2 text-center text-secondary-label text-xs">
+            Create a project and drag chats into it
+          </div>
+        ) : null}
+      </SidebarGroup>
+      <SidebarGroup
+        className={`px-2 py-2 transition-colors${isChatsDropTarget ? " rounded-md bg-sidebar-row-hover/60" : ""}`}
+        data-testid="work-chats-section"
+        {...dropHandlers({ projectId: null })}
+      >
+        <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
+          <span className="text-xs font-medium text-sidebar-muted-foreground/80">Chats</span>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -3535,25 +3506,17 @@ const SidebarWorkChatsSection = memo(function SidebarWorkChatsSection(
             <TooltipPopup side="right">New chat</TooltipPopup>
           </Tooltip>
         </div>
-      </div>
-      <SidebarMenu>
-        {folderTree.map(renderFolder)}
-        {groups.root.length > 0 ? (
+        <SidebarMenu>
           <SidebarMenuItem className="rounded-md">
-            {renderThreadList("work-chats", groups.root, true)}
+            {renderThreadList("work-chats", groups.chats, true)}
           </SidebarMenuItem>
-        ) : null}
-      </SidebarMenu>
-      {isEmpty ? (
-        <div className="px-2 pt-2 text-center text-secondary-label text-xs">
-          Drag threads here to organize them
-        </div>
-      ) : null}
-    </SidebarGroup>
+        </SidebarMenu>
+      </SidebarGroup>
+    </>
   );
 });
 
-function WorkFolderNameInput(props: {
+function WorkProjectNameInput(props: {
   initialName: string;
   onCommit: (name: string) => void;
   onCancel: () => void;
@@ -3574,7 +3537,7 @@ function WorkFolderNameInput(props: {
   return (
     <input
       ref={inputRef}
-      aria-label="Folder name"
+      aria-label="Project name"
       className="min-w-0 flex-1 truncate rounded border border-ring bg-transparent px-0.5 text-sm outline-none"
       defaultValue={props.initialName}
       onBlur={() => settle(true)}
@@ -3630,35 +3593,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     resolveLogicalProjectKey,
   } = props;
   const isWorkMode = useIsWorkMode();
-  // Work mode: dropping threads from Chats onto Projects moves them back.
-  const [isProjectsDropTarget, setIsProjectsDropTarget] = useState(false);
-  useEffect(() => {
-    if (!isProjectsDropTarget) return;
-    const clear = () => setIsProjectsDropTarget(false);
-    window.addEventListener("dragend", clear);
-    window.addEventListener("drop", clear);
-    return () => {
-      window.removeEventListener("dragend", clear);
-      window.removeEventListener("drop", clear);
-    };
-  }, [isProjectsDropTarget]);
-  const projectsDropHandlers = isWorkMode
-    ? {
-        onDragOver: (event: React.DragEvent) => {
-          if (!isWorkDragFromChats(event.dataTransfer)) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "move";
-          setIsProjectsDropTarget(true);
-        },
-        onDrop: (event: React.DragEvent) => {
-          const payload = readWorkDragPayload(event.dataTransfer);
-          if (payload?.kind !== "threads") return;
-          event.preventDefault();
-          setIsProjectsDropTarget(false);
-          useWorkModeStore.getState().returnThreadsToProjects(payload.threadKeys);
-        },
-      }
-    : {};
 
   const handleProjectSortOrderChange = useCallback(
     (sortOrder: SidebarProjectSortOrder) => {
@@ -3733,122 +3667,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         </SidebarGroup>
       ) : null}
       <LocalSecondaryStatus />
-      <SidebarGroup
-        className={`px-2 py-2${isProjectsDropTarget ? " rounded-md bg-sidebar-row-hover/60" : ""}`}
-        {...projectsDropHandlers}
-      >
-        <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
-          <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
-          <div className="flex items-center gap-1">
-            <ProjectSortMenu
-              projectSortOrder={projectSortOrder}
-              threadSortOrder={threadSortOrder}
-              threadPreviewCount={threadPreviewCount}
-              onProjectSortOrderChange={handleProjectSortOrderChange}
-              onThreadSortOrderChange={handleThreadSortOrderChange}
-              onThreadPreviewCountChange={handleThreadPreviewCountChange}
-            />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="icon-xs"
-                    variant="ghost-muted"
-                    aria-label="Add project"
-                    data-testid="sidebar-add-project-trigger"
-                    className="size-6 [--control-icon-color:currentColor] text-icon-muted"
-                    onClick={openAddProject}
-                  />
-                }
-              >
-                <FolderPlusIcon className="size-3.5" />
-              </TooltipTrigger>
-              <TooltipPopup side="right">Add project</TooltipPopup>
-            </Tooltip>
-          </div>
-        </div>
-
-        {isManualProjectSorting ? (
-          <DndContext
-            sensors={projectDnDSensors}
-            collisionDetection={projectCollisionDetection}
-            modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-            onDragStart={handleProjectDragStart}
-            onDragEnd={handleProjectDragEnd}
-            onDragCancel={handleProjectDragCancel}
-          >
-            <SidebarMenu>
-              <SortableContext
-                items={sortedProjects.map((project) => project.projectKey)}
-                strategy={verticalListSortingStrategy}
-              >
-                {sortedProjects.map((project) => (
-                  <SortableProjectItem key={project.projectKey} projectId={project.projectKey}>
-                    {(dragHandleProps) => (
-                      <SidebarProjectItem
-                        project={project}
-                        isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
-                        activeRouteThreadKey={
-                          activeRouteProjectKey === project.projectKey ? routeThreadKey : null
-                        }
-                        openPullRequestsInRightPanel={openPullRequestsInRightPanel}
-                        newThreadShortcutLabel={newThreadShortcutLabel}
-                        handleNewThread={handleNewThread}
-                        archiveThread={archiveThread}
-                        deleteThread={deleteThread}
-                        threadJumpLabelByKey={threadJumpLabelByKey}
-                        attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
-                        expandThreadListForProject={expandThreadListForProject}
-                        collapseThreadListForProject={collapseThreadListForProject}
-                        dragInProgressRef={dragInProgressRef}
-                        suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
-                        suppressProjectClickForContextMenuRef={
-                          suppressProjectClickForContextMenuRef
-                        }
-                        isManualProjectSorting={isManualProjectSorting}
-                        dragHandleProps={dragHandleProps}
-                      />
-                    )}
-                  </SortableProjectItem>
-                ))}
-              </SortableContext>
-            </SidebarMenu>
-          </DndContext>
-        ) : (
-          <SidebarMenu ref={attachProjectListAutoAnimateRef}>
-            {sortedProjects.map((project) => (
-              <SidebarProjectListRow
-                key={project.projectKey}
-                project={project}
-                isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
-                activeRouteThreadKey={
-                  activeRouteProjectKey === project.projectKey ? routeThreadKey : null
-                }
-                openPullRequestsInRightPanel={openPullRequestsInRightPanel}
-                newThreadShortcutLabel={newThreadShortcutLabel}
-                handleNewThread={handleNewThread}
-                archiveThread={archiveThread}
-                deleteThread={deleteThread}
-                threadJumpLabelByKey={threadJumpLabelByKey}
-                attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
-                expandThreadListForProject={expandThreadListForProject}
-                collapseThreadListForProject={collapseThreadListForProject}
-                dragInProgressRef={dragInProgressRef}
-                suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
-                suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
-                isManualProjectSorting={isManualProjectSorting}
-                dragHandleProps={null}
-              />
-            ))}
-          </SidebarMenu>
-        )}
-
-        {projectsLength === 0 && (
-          <div className="px-2 pt-4 text-center text-secondary-label text-xs">No projects yet</div>
-        )}
-      </SidebarGroup>
       {isWorkMode ? (
-        <SidebarWorkChatsSection
+        <SidebarWorkSections
           routeThreadKey={routeThreadKey}
           openPullRequestsInRightPanel={openPullRequestsInRightPanel}
           newThreadShortcutLabel={newThreadShortcutLabel}
@@ -3862,7 +3682,123 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           collapseThreadListForProject={collapseThreadListForProject}
           resolveLogicalProjectKey={resolveLogicalProjectKey}
         />
-      ) : null}
+      ) : (
+        <SidebarGroup className="px-2 py-2">
+          <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
+            <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
+            <div className="flex items-center gap-1">
+              <ProjectSortMenu
+                projectSortOrder={projectSortOrder}
+                threadSortOrder={threadSortOrder}
+                threadPreviewCount={threadPreviewCount}
+                onProjectSortOrderChange={handleProjectSortOrderChange}
+                onThreadSortOrderChange={handleThreadSortOrderChange}
+                onThreadPreviewCountChange={handleThreadPreviewCountChange}
+              />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="icon-xs"
+                      variant="ghost-muted"
+                      aria-label="Add project"
+                      data-testid="sidebar-add-project-trigger"
+                      className="size-6 [--control-icon-color:currentColor] text-icon-muted"
+                      onClick={openAddProject}
+                    />
+                  }
+                >
+                  <FolderPlusIcon className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipPopup side="right">Add project</TooltipPopup>
+              </Tooltip>
+            </div>
+          </div>
+
+          {isManualProjectSorting ? (
+            <DndContext
+              sensors={projectDnDSensors}
+              collisionDetection={projectCollisionDetection}
+              modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+              onDragStart={handleProjectDragStart}
+              onDragEnd={handleProjectDragEnd}
+              onDragCancel={handleProjectDragCancel}
+            >
+              <SidebarMenu>
+                <SortableContext
+                  items={sortedProjects.map((project) => project.projectKey)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {sortedProjects.map((project) => (
+                    <SortableProjectItem key={project.projectKey} projectId={project.projectKey}>
+                      {(dragHandleProps) => (
+                        <SidebarProjectItem
+                          project={project}
+                          isThreadListExpanded={expandedThreadListsByProject.has(
+                            project.projectKey,
+                          )}
+                          activeRouteThreadKey={
+                            activeRouteProjectKey === project.projectKey ? routeThreadKey : null
+                          }
+                          openPullRequestsInRightPanel={openPullRequestsInRightPanel}
+                          newThreadShortcutLabel={newThreadShortcutLabel}
+                          handleNewThread={handleNewThread}
+                          archiveThread={archiveThread}
+                          deleteThread={deleteThread}
+                          threadJumpLabelByKey={threadJumpLabelByKey}
+                          attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
+                          expandThreadListForProject={expandThreadListForProject}
+                          collapseThreadListForProject={collapseThreadListForProject}
+                          dragInProgressRef={dragInProgressRef}
+                          suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
+                          suppressProjectClickForContextMenuRef={
+                            suppressProjectClickForContextMenuRef
+                          }
+                          isManualProjectSorting={isManualProjectSorting}
+                          dragHandleProps={dragHandleProps}
+                        />
+                      )}
+                    </SortableProjectItem>
+                  ))}
+                </SortableContext>
+              </SidebarMenu>
+            </DndContext>
+          ) : (
+            <SidebarMenu ref={attachProjectListAutoAnimateRef}>
+              {sortedProjects.map((project) => (
+                <SidebarProjectListRow
+                  key={project.projectKey}
+                  project={project}
+                  isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
+                  activeRouteThreadKey={
+                    activeRouteProjectKey === project.projectKey ? routeThreadKey : null
+                  }
+                  openPullRequestsInRightPanel={openPullRequestsInRightPanel}
+                  newThreadShortcutLabel={newThreadShortcutLabel}
+                  handleNewThread={handleNewThread}
+                  archiveThread={archiveThread}
+                  deleteThread={deleteThread}
+                  threadJumpLabelByKey={threadJumpLabelByKey}
+                  attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
+                  expandThreadListForProject={expandThreadListForProject}
+                  collapseThreadListForProject={collapseThreadListForProject}
+                  dragInProgressRef={dragInProgressRef}
+                  suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
+                  suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
+                  isManualProjectSorting={isManualProjectSorting}
+                  dragHandleProps={null}
+                />
+              ))}
+            </SidebarMenu>
+          )}
+
+          {projectsLength === 0 && (
+            <div className="px-2 pt-4 text-center text-secondary-label text-xs">
+              No projects yet
+            </div>
+          )}
+        </SidebarGroup>
+      )}
     </SidebarContent>
   );
 });
@@ -4027,15 +3963,9 @@ export default function LegacySidebar() {
 
   // Group threads by logical project key so all threads from grouped projects
   // are displayed together.
-  const chatsPlacementByKey = useWorkModeStore((state) =>
-    state.mode === "work" ? state.threadFolderByKey : EMPTY_CHATS_PLACEMENTS,
-  );
   const threadsByProjectKey = useMemo(() => {
     const next = new Map<string, SidebarThreadSummary[]>();
     for (const thread of sidebarThreads) {
-      if (scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) in chatsPlacementByKey) {
-        continue;
-      }
       const physicalKey =
         projectPhysicalKeyByScopedRef.get(
           scopedProjectKey(scopeProjectRef(thread.environmentId, thread.projectId)),
@@ -4049,7 +3979,7 @@ export default function LegacySidebar() {
       }
     }
     return next;
-  }, [chatsPlacementByKey, sidebarThreads, physicalToLogicalKey, projectPhysicalKeyByScopedRef]);
+  }, [sidebarThreads, physicalToLogicalKey, projectPhysicalKeyByScopedRef]);
   const resolveLogicalProjectKey = useCallback(
     (thread: SidebarThreadSummary) => {
       const physicalKey =
