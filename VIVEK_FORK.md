@@ -110,6 +110,6 @@ Keep `origin` pointed at `volumbe/t3code` and `upstream` at
 `pingdotgg/t3code`. Merge each stable upstream release tag into `main`,
 resolve any conflicts in this small customization, then rebuild with that
 release's version. Update the private Ubuntu T3 service to the matching
-version during a quiet period, using the procedure in the machine repository's
-`ubuntu/t3code-vivek-affil/README.md`. Do not update the Office T3 service
-as part of this workflow.
+version during a quiet period. The machine repository's `update-t3-release`
+skill runs the whole release: this fork, the private server, and, only when
+explicitly in scope, the Office T3 overlay and workers.
