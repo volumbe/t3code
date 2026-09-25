@@ -89,13 +89,20 @@ export type RightPanelSurface =
   | { id: "pull-requests"; kind: "pull-requests" }
   | { id: "agents"; kind: "agents" }
   /**
-   * Another chat from the same project, shown beside the main thread. The id is
-   * stable while `threadId` moves from null (a new, unsent chat) to the thread
-   * created by its first message. A new chat reserves `draftThreadId` up front:
-   * its composer draft is keyed by that id, and its first message creates the
-   * thread under it.
+   * Another chat, shown beside the main thread. The id is stable while
+   * `threadId` moves from null (a new, unsent chat) to the thread created by
+   * its first message. A new chat reserves `draftThreadId` up front: its
+   * composer draft is keyed by that id, and its first message creates the
+   * thread under it. `environmentId` names the chat's environment when it is
+   * not the main thread's.
    */
-  | { id: `chat:${string}`; kind: "chat"; threadId: string | null; draftThreadId?: string };
+  | {
+      id: `chat:${string}`;
+      kind: "chat";
+      threadId: string | null;
+      draftThreadId?: string;
+      environmentId?: string;
+    };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -160,8 +167,16 @@ interface RightPanelStoreState {
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   /** Open a chat surface for an existing thread, or a new chat when `threadId` is null. */
   openChat: (ref: ScopedThreadRef, threadId: string | null) => void;
-  /** Point a chat surface at a thread, e.g. after its first message creates one. */
-  setChatSurfaceThread: (ref: ScopedThreadRef, surfaceId: string, threadId: string | null) => void;
+  /**
+   * Point a chat surface at a thread, e.g. after its first message creates one.
+   * `environmentId` is the thread's environment; it defaults to the main thread's.
+   */
+  setChatSurfaceThread: (
+    ref: ScopedThreadRef,
+    surfaceId: string,
+    threadId: string | null,
+    environmentId?: string,
+  ) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
     surfaceId: string,
@@ -284,10 +299,14 @@ export function pullRequestSurface(target: {
 export type ChatSurface = Extract<RightPanelSurface, { kind: "chat" }>;
 
 /** A chat surface; a new chat (null thread) reserves a fresh thread id for its draft. */
-const chatSurface = (id: ChatSurface["id"], threadId: string | null): ChatSurface =>
+const chatSurface = (
+  id: ChatSurface["id"],
+  threadId: string | null,
+  environmentId?: string,
+): ChatSurface =>
   threadId === null
     ? { id, kind: "chat", threadId: null, draftThreadId: randomUUID() }
-    : { id, kind: "chat", threadId };
+    : { id, kind: "chat", threadId, ...(environmentId ? { environmentId } : {}) };
 
 const upsertSurface = (
   current: ThreadRightPanelState,
@@ -656,10 +675,11 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             );
           }),
         ),
-      setChatSurfaceThread: (ref, surfaceId, threadId) =>
+      setChatSurfaceThread: (ref, surfaceId, threadId, environmentId) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
             // Selecting a chat that already has a tab switches to that tab instead of duplicating it.
+            const targetEnvironmentId = environmentId ?? ref.environmentId;
             const duplicate =
               threadId === null
                 ? undefined
@@ -667,6 +687,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                     (surface) =>
                       surface.kind === "chat" &&
                       surface.threadId === threadId &&
+                      (surface.environmentId ?? ref.environmentId) === targetEnvironmentId &&
                       surface.id !== surfaceId,
                   );
             if (duplicate) {
@@ -681,7 +702,11 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               ...current,
               surfaces: current.surfaces.map((surface) =>
                 surface.id === surfaceId && surface.kind === "chat"
-                  ? chatSurface(surface.id, threadId)
+                  ? chatSurface(
+                      surface.id,
+                      threadId,
+                      targetEnvironmentId === ref.environmentId ? undefined : targetEnvironmentId,
+                    )
                   : surface,
               ),
             };

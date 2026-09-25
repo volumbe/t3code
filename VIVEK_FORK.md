@@ -31,10 +31,12 @@ choice is stored locally under `t3work:work-mode:v1`.
   Motion), still icons for Monitoring (an eye), approval, input, Plan Ready,
   and Failed, and a dot for an unseen completion.
 
-In both modes, the right panel's **Chat** surface shows another chat from the
-same project beside the main thread
-(`apps/web/src/components/work/DockChatPanel.tsx`). Its picker starts a new
-chat or opens an existing one. The chat itself is the real `ChatView` in
+In both modes, the right panel's **Chat** surface shows another chat beside
+the main thread (`apps/web/src/components/work/DockChatPanel.tsx`). Its picker
+starts a new chat in the main chat's project or opens any existing chat, on any
+machine, in three sections: the main chat's Work project, its repository, and
+the 30 most recent others (`DockChatPanel.logic.ts`). A chat tab records its
+environment when it is not the main chat's. The chat itself is the real `ChatView` in
 embedded mode (`embedded` prop): same timeline, composer, and workspace strip,
 but no header, right panel, terminal, or route changes. A new chat there
 starts in the main chat's worktree, or its checkout when it has none; the

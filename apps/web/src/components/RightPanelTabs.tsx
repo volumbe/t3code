@@ -887,7 +887,9 @@ function useChatSurfaceTitles(
       if (surface.kind !== "chat") continue;
       const thread = surface.threadId
         ? threads.find(
-            (entry) => entry.environmentId === environmentId && entry.id === surface.threadId,
+            (entry) =>
+              entry.environmentId === (surface.environmentId ?? environmentId) &&
+              entry.id === surface.threadId,
           )
         : undefined;
       titles.set(surface.id, thread?.title ?? (surface.threadId ? "Chat" : "New chat"));
