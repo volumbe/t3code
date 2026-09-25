@@ -21,6 +21,37 @@ beforeEach(() => {
 });
 
 describe("rightPanelStore", () => {
+  it("opens chat surfaces, binds a new chat to its thread, and reuses existing tabs", () => {
+    const store = useRightPanelStore.getState();
+    store.openChat(refA, null);
+    let state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    const newChat = state.surfaces[0];
+    expect(newChat).toMatchObject({ kind: "chat", threadId: null });
+    expect(state.activeSurfaceId).toBe(newChat?.id);
+
+    store.setChatSurfaceThread(refA, newChat!.id, "thread-C");
+    state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([{ id: newChat!.id, kind: "chat", threadId: "thread-C" }]);
+
+    // Opening the same chat again activates its tab instead of adding one.
+    store.open(refA, "agents");
+    store.openChat(refA, "thread-C");
+    state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toHaveLength(2);
+    expect(state.activeSurfaceId).toBe(newChat!.id);
+
+    // Pointing a second tab at an already-open chat collapses it into that tab.
+    store.openChat(refA, null);
+    const secondId = selectThreadRightPanelState(
+      useRightPanelStore.getState().byThreadKey,
+      refA,
+    ).activeSurfaceId!;
+    store.setChatSurfaceThread(refA, secondId, "thread-C");
+    state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces.map((surface) => surface.id)).toEqual([newChat!.id, "agents"]);
+    expect(state.activeSurfaceId).toBe(newChat!.id);
+  });
+
   it("gives each host/device its own tab and preserves renamed tabs", () => {
     const store = useRightPanelStore.getState();
     const android = {

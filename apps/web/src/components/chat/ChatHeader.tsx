@@ -1,7 +1,9 @@
 import {
   type EnvironmentId,
+  type EditorId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
+  resolveEnvironmentMachineKind,
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -21,13 +23,20 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import GitActionsControl from "../GitActionsControl";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
+import { type DraftId } from "~/composerDraftStore";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
+import { OpenInPicker } from "./OpenInPicker";
+import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
+import { useEnvironment, usePrimaryEnvironmentId } from "../../state/environments";
+import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
+import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
@@ -41,18 +50,24 @@ import {
   WorkspaceBreadcrumbSeparator,
 } from "../WorkspaceBreadcrumb";
 import { cn } from "~/lib/utils";
+import { useIsWorkMode } from "~/workModeStore";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
+  draftId?: DraftId;
   activeThreadTitle: string;
   /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
+  openInCwd: string | null;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
+  availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
+  gitCwd: string | null;
+  readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
   onRunProjectScript: (script: ProjectScript) => void;
@@ -88,16 +103,40 @@ const TITLE_MENU_OPEN_DELAY_MS = 500;
 // Matches the @3xl/header-actions container breakpoint owned by this header.
 const HEADER_ACTIONS_EXPANDED_BREAKPOINT_REM = 48;
 
+export function shouldShowOpenInPicker(input: {
+  readonly activeProjectName: string | undefined;
+  readonly activeThreadEnvironmentId: EnvironmentId;
+  readonly primaryEnvironmentId: EnvironmentId | null;
+  readonly remoteOpenMode: RemoteOpenMode;
+}): boolean {
+  if (!input.activeProjectName) return false;
+  if (
+    input.primaryEnvironmentId !== null &&
+    input.activeThreadEnvironmentId === input.primaryEnvironmentId
+  ) {
+    return true;
+  }
+  // Remote environments get the picker in deep-link mode (or its explicit
+  // "no SSH route" state). Non-primary local backends (e.g. WSL) keep it
+  // hidden, matching pre-remote behavior.
+  return input.remoteOpenMode !== "local-exec";
+}
+
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
+  draftId,
   activeThreadTitle,
   isServerThread,
   activeProject,
+  openInCwd,
   activeProjectScripts,
   preferredScriptId,
   keybindings,
+  availableEditors,
   rightPanelOpen,
+  gitCwd,
+  onOpenPullRequest,
   onNewThreadInProject,
   onOpenProjectSettings,
   onRunProjectScript,
@@ -120,12 +159,21 @@ export const ChatHeader = memo(function ChatHeader({
       breakpoint: { value: HEADER_ACTIONS_EXPANDED_BREAKPOINT_REM, unit: "rem" },
     });
   }, [panelAnimationDurationMs, panelAnimationsActive]);
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const activeProjectName = activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,
     activeProjectScripts ? activeProjectCwd : null,
   );
+  const remoteOpenState = useRemoteOpenState(activeThreadEnvironmentId);
+  const isWorkMode = useIsWorkMode();
+  const showOpenInPicker = shouldShowOpenInPicker({
+    activeProjectName,
+    activeThreadEnvironmentId,
+    primaryEnvironmentId,
+    remoteOpenMode: remoteOpenState.mode,
+  });
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
@@ -283,7 +331,10 @@ export const ChatHeader = memo(function ChatHeader({
             doesn't answer it. */}
         {activeProject ? (
           <>
-            <WorkspaceBreadcrumbItem className="shrink">
+            <WorkspaceBreadcrumbItem className="shrink gap-1.5">
+              {isWorkMode ? (
+                <ChatHeaderEnvironmentIcon environmentId={activeThreadEnvironmentId} />
+              ) : null}
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -366,7 +417,8 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:[transition-duration:var(--panel-animation-duration)] [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
-        {activeProjectScripts && activeProjectScripts.length > 0 && (
+        {/* Work mode hides actions, editors, and Git. Those belong to Code mode. */}
+        {!isWorkMode && activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
             fileScripts={fileScripts}
@@ -378,7 +430,56 @@ export const ChatHeader = memo(function ChatHeader({
             onDeleteScript={onDeleteProjectScript}
           />
         )}
+        {!isWorkMode && showOpenInPicker && (
+          <OpenInPicker
+            environmentId={activeThreadEnvironmentId}
+            keybindings={keybindings}
+            availableEditors={availableEditors}
+            openInCwd={openInCwd}
+          />
+        )}
+        {!isWorkMode && activeProjectName && (
+          <GitActionsControl
+            gitCwd={gitCwd}
+            activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
+            onOpenPullRequest={onOpenPullRequest}
+            {...(draftId ? { draftId } : {})}
+          />
+        )}
       </div>
     </div>
   );
 });
+
+/**
+ * Work mode's marker for a chat on another machine. It replaces the
+ * environment label that Code mode shows under the composer.
+ */
+function ChatHeaderEnvironmentIcon({ environmentId }: { environmentId: EnvironmentId }) {
+  const environment = useEnvironment(environmentId);
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  if (environmentId === primaryEnvironmentId) return null;
+  // A desktop-local secondary backend (e.g. WSL) runs on this machine, so it is not remote.
+  if (environment !== null && isDesktopLocalConnectionTarget(environment.entry.target)) {
+    return null;
+  }
+  const label = environment?.label ?? "Remote environment";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            aria-label={`Runs on ${label}`}
+            className="inline-flex shrink-0 items-center text-muted-foreground"
+          />
+        }
+      >
+        <EnvironmentMachineIcon
+          kind={resolveEnvironmentMachineKind(environment?.serverConfig ?? null)}
+          className="size-3.5"
+        />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">Runs on {label}</TooltipPopup>
+    </Tooltip>
+  );
+}

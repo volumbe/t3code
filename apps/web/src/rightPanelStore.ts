@@ -18,6 +18,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
+import { randomUUID } from "./lib/utils";
 
 const RIGHT_PANEL_KINDS = [
   "diff",
@@ -29,6 +30,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-request",
   "pull-requests",
   "agents",
+  "chat",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -85,7 +87,13 @@ export type RightPanelSurface =
     }
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
-  | { id: "agents"; kind: "agents" };
+  | { id: "agents"; kind: "agents" }
+  /**
+   * Another chat from the same project, shown beside the main thread. The id is
+   * stable while `threadId` moves from null (a new, unsent chat) to the thread
+   * created by its first message.
+   */
+  | { id: `chat:${string}`; kind: "chat"; threadId: string | null };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -129,7 +137,7 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "chat">,
   ) => void;
   openDevice: (ref: ScopedThreadRef, target: DeviceTabTarget, automatic?: boolean) => void;
   renameDevice: (ref: ScopedThreadRef, surfaceId: string, title: string) => void;
@@ -148,6 +156,10 @@ interface RightPanelStoreState {
     },
   ) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
+  /** Open a chat surface for an existing thread, or a new chat when `threadId` is null. */
+  openChat: (ref: ScopedThreadRef, threadId: string | null) => void;
+  /** Point a chat surface at a thread, e.g. after its first message creates one. */
+  setChatSurfaceThread: (ref: ScopedThreadRef, surfaceId: string, threadId: string | null) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
     surfaceId: string,
@@ -168,7 +180,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "chat">,
   ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
@@ -180,7 +192,7 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
+  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request" | "chat">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -618,6 +630,52 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           userAction(state, scopedThreadKey(ref), (current) =>
             upsertSurface(current, terminalSurface(terminalId)),
           ),
+        ),
+      openChat: (ref, threadId) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            const existing =
+              threadId === null
+                ? undefined
+                : current.surfaces.find(
+                    (surface) => surface.kind === "chat" && surface.threadId === threadId,
+                  );
+            return upsertSurface(
+              current,
+              existing ?? { id: `chat:${randomUUID()}`, kind: "chat", threadId },
+            );
+          }),
+        ),
+      setChatSurfaceThread: (ref, surfaceId, threadId) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            // Selecting a chat that already has a tab switches to that tab instead of duplicating it.
+            const duplicate =
+              threadId === null
+                ? undefined
+                : current.surfaces.find(
+                    (surface) =>
+                      surface.kind === "chat" &&
+                      surface.threadId === threadId &&
+                      surface.id !== surfaceId,
+                  );
+            if (duplicate) {
+              return {
+                ...current,
+                isOpen: true,
+                surfaces: current.surfaces.filter((surface) => surface.id !== surfaceId),
+                activeSurfaceId: duplicate.id,
+              };
+            }
+            return {
+              ...current,
+              surfaces: current.surfaces.map((surface) =>
+                surface.id === surfaceId && surface.kind === "chat"
+                  ? { ...surface, threadId }
+                  : surface,
+              ),
+            };
+          }),
         ),
       splitTerminal: (ref, surfaceId, terminalId, direction = "horizontal") =>
         set((state) =>

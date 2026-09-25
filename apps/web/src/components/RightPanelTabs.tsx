@@ -24,6 +24,7 @@ import {
   GitPullRequest,
   GitPullRequestArrow,
   Globe2,
+  MessageSquare,
   Plus,
   TerminalSquare,
   Volume2,
@@ -36,6 +37,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -118,6 +120,10 @@ interface RightPanelTabsProps {
   onAddPullRequests: () => void;
   onAddAgents: () => void;
   onAddDevice: () => void;
+  /** Opens a chat surface. The launcher only offers Chat when this is set. */
+  onAddChat?: (() => void) | undefined;
+  /** Work mode hides coding surfaces (terminal, diff, pull requests, devices). */
+  codingSurfacesHidden?: boolean | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -182,6 +188,25 @@ const SURFACE_UNAVAILABLE_HINTS = {
   agents: "Available from a thread.",
   device: "Available from a thread.",
 } as const;
+
+const CODING_SURFACE_LABELS: ReadonlySet<string> = new Set([
+  "Terminal",
+  "Diff",
+  "Pull request",
+  "Linked pull requests",
+  "Device",
+]);
+
+/** Put Chat first when it is offered, and drop coding surfaces in Work mode. */
+function arrangeSurfaceActions<Action extends { label: string }>(
+  actions: readonly Action[],
+  chatAction: Action | null,
+  codingSurfacesHidden: boolean,
+): Action[] {
+  return [...(chatAction ? [chatAction] : []), ...actions].filter(
+    (action) => !codingSurfacesHidden || !CODING_SURFACE_LABELS.has(action.label),
+  );
+}
 
 type TabContextMenuAction =
   | "rename"
@@ -303,6 +328,17 @@ function SurfaceMenuItem(props: {
   return <DisabledReasonTooltip reason={props.disabledReason} trigger={item} />;
 }
 
+interface ChatLauncherAction {
+  label: "Chat";
+  description: string;
+  icon: typeof MessageSquare;
+  shortcut: "C";
+  available: true;
+  disabledReason: string;
+  onClick: () => void;
+  badgeCount: 0;
+}
+
 /**
  * List launcher shown when the right panel has no surfaces. Keyboard-first
  * without palette chrome: a surface's letter opens it directly from anywhere
@@ -321,6 +357,8 @@ function RightPanelEmptyState(props: {
   onAddPullRequests: () => void;
   onAddAgents: () => void;
   onAddDevice: () => void;
+  onAddChat?: (() => void) | undefined;
+  codingSurfacesHidden?: boolean | undefined;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -334,7 +372,7 @@ function RightPanelEmptyState(props: {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
 
-  const actions = [
+  const launcherActions = [
     {
       label: "Browser",
       icon: Globe2,
@@ -409,6 +447,22 @@ function RightPanelEmptyState(props: {
       badgeCount: 0,
     },
   ] as const;
+  const actions = arrangeSurfaceActions<(typeof launcherActions)[number] | ChatLauncherAction>(
+    launcherActions,
+    props.onAddChat
+      ? {
+          label: "Chat",
+          description: "Open another chat from this project.",
+          icon: MessageSquare,
+          shortcut: "C",
+          available: true,
+          disabledReason: "",
+          onClick: props.onAddChat,
+          badgeCount: 0,
+        }
+      : null,
+    props.codingSurfacesHidden === true,
+  );
 
   type SurfaceAction = (typeof actions)[number];
 
@@ -609,6 +663,7 @@ function surfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
+  chatTitlesById?: ReadonlyMap<string, string>,
 ): string {
   switch (surface.kind) {
     case "diff":
@@ -630,6 +685,8 @@ function surfaceTitle(
       return "Pull requests";
     case "agents":
       return "Agents";
+    case "chat":
+      return chatTitlesById?.get(surface.id) ?? "Chat";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -715,6 +772,8 @@ function SurfaceIcon({
       return <GitPullRequestArrow className="size-3 shrink-0" />;
     case "agents":
       return <Bot className="size-3 shrink-0" />;
+    case "chat":
+      return <MessageSquare className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -816,7 +875,29 @@ function PullRequestSurfaceIcon({
   return <presentation.Icon className={cn("size-3 shrink-0", presentation.toneClassName)} />;
 }
 
+/** Tab titles for chat surfaces, read from the thread shells they point at. */
+function useChatSurfaceTitles(
+  surfaces: readonly RightPanelSurface[],
+  environmentId: EnvironmentId | null,
+): ReadonlyMap<string, string> {
+  const threads = useThreadShells();
+  return useMemo(() => {
+    const titles = new Map<string, string>();
+    for (const surface of surfaces) {
+      if (surface.kind !== "chat") continue;
+      const thread = surface.threadId
+        ? threads.find(
+            (entry) => entry.environmentId === environmentId && entry.id === surface.threadId,
+          )
+        : undefined;
+      titles.set(surface.id, thread?.title ?? (surface.threadId ? "Chat" : "New chat"));
+    }
+    return titles;
+  }, [environmentId, surfaces, threads]);
+}
+
 export function RightPanelTabs(props: RightPanelTabsProps) {
+  const chatTitlesById = useChatSurfaceTitles(props.surfaces, props.environmentId);
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
   const browserProfiles = useBrowserDefaults().profiles;
   const { resolvedTheme } = useTheme();
@@ -860,7 +941,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     });
   }, []);
 
-  const addSurfaceActions = [
+  const baseAddSurfaceActions = [
     {
       label: "Browser",
       icon: Globe2,
@@ -926,6 +1007,22 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       onClick: props.onAddDevice,
     },
   ] as const;
+  const addSurfaceActions = arrangeSurfaceActions<
+    (typeof baseAddSurfaceActions)[number] | Omit<ChatLauncherAction, "description" | "badgeCount">
+  >(
+    baseAddSurfaceActions,
+    props.onAddChat
+      ? {
+          label: "Chat",
+          icon: MessageSquare,
+          shortcut: "C",
+          available: true,
+          disabledReason: "",
+          onClick: props.onAddChat,
+        }
+      : null,
+    props.codingSurfacesHidden === true,
+  );
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const action = surfaceShortcutActionForKey(addSurfaceActions, event.nativeEvent);
@@ -1125,7 +1222,12 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             {props.surfaces.map((surface) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
-              const title = surfaceTitle(surface, props.previewSessions, props.terminalLabelsById);
+              const title = surfaceTitle(
+                surface,
+                props.previewSessions,
+                props.terminalLabelsById,
+                chatTitlesById,
+              );
               const previewTabId = previewTabIdOf(surface, props.previewSessions);
               // Desktop state is keyed by the session id, but desktop actions
               // must be addressed with the runtime id.
@@ -1397,6 +1499,8 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequests={props.onAddPullRequests}
             onAddAgents={props.onAddAgents}
             onAddDevice={props.onAddDevice}
+            onAddChat={props.onAddChat}
+            codingSurfacesHidden={props.codingSurfacesHidden}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}

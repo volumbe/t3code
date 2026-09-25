@@ -235,6 +235,10 @@ export default function ProjectScriptsControl({
                 );
               })}
               {importMenuItems}
+              <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
+                <PlusIcon className="size-4" />
+                Add action
+              </MenuItem>
             </MenuPopup>
           </Menu>
         </Group>

@@ -1,12 +1,16 @@
 import {
   ArrowLeftIcon,
+  BriefcaseIcon,
   ChartNoAxesColumnIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CodeIcon,
   GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
-import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
+import { useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -30,6 +34,8 @@ import {
   useSidebar,
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { type AppMode, useAppMode, useIsWorkMode, useWorkModeStore } from "../../workModeStore";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
@@ -81,29 +87,66 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   );
 });
 
+const APP_MODE_OPTIONS = [
+  { mode: "code", label: "Code", description: "Projects, terminals, and Git", icon: CodeIcon },
+  { mode: "work", label: "Work", description: "Folders and chats", icon: BriefcaseIcon },
+] as const satisfies ReadonlyArray<{
+  mode: AppMode;
+  label: string;
+  description: string;
+  icon: typeof CodeIcon;
+}>;
+
+/** "T3 Code" / "T3 Work": the brand doubles as the switch between the two modes. */
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+  const mode = useAppMode();
+  const setMode = useWorkModeStore((state) => state.setMode);
+  const current = APP_MODE_OPTIONS.find((option) => option.mode === mode) ?? APP_MODE_OPTIONS[0];
   return (
-    <Link
-      aria-label="Go to threads"
-      className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
-        onBackdrop ? "text-white" : "text-foreground",
-      )}
-      to="/"
-    >
-      {/* Center the visible capitals, without the font's ascender/descender space. */}
-      <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
-        <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
-        <span
+    <Menu>
+      <MenuTrigger
+        aria-label={`T3 ${current.label}. Switch mode`}
+        data-app-mode={mode}
+        className={cn(
+          "group/brand relative z-10 ml-[calc(var(--workspace-titlebar-content-left)-0.25rem)] hidden h-7 w-fit min-w-0 shrink-0 cursor-pointer items-center gap-1 overflow-hidden rounded-md px-1 outline-hidden ring-ring [-webkit-app-region:no-drag] hover:bg-sidebar-accent/70 focus-visible:ring-2 data-[popup-open]:bg-sidebar-accent/70 md:flex",
+          onBackdrop ? "text-white hover:bg-white/15" : "text-foreground",
+        )}
+      >
+        {/* Center the visible capitals, without the font's ascender/descender space. */}
+        <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
+          <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
+          <span
+            className={cn(
+              "truncate [text-box:trim-both_cap_alphabetic]",
+              onBackdrop ? "text-white/70" : "text-muted-foreground",
+            )}
+          >
+            {current.label}
+          </span>
+        </span>
+        <ChevronDownIcon
           className={cn(
-            "truncate [text-box:trim-both_cap_alphabetic]",
+            "size-3 shrink-0 opacity-50 group-hover/brand:opacity-90",
             onBackdrop ? "text-white/70" : "text-muted-foreground",
           )}
-        >
-          Code
-        </span>
-      </span>
-    </Link>
+        />
+      </MenuTrigger>
+      <MenuPopup align="start" className="w-60">
+        {APP_MODE_OPTIONS.map((option) => {
+          const Icon = option.icon;
+          return (
+            <MenuItem key={option.mode} onClick={() => setMode(option.mode)}>
+              <Icon className="size-4" />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="font-medium">T3 {option.label}</span>
+                <span className="text-xs text-muted-foreground">{option.description}</span>
+              </span>
+              {option.mode === mode ? <CheckIcon className="size-4 shrink-0" /> : null}
+            </MenuItem>
+          );
+        })}
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -151,9 +194,12 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const { environments } = useEnvironments();
   // The page reads every connected server, so one of them offering pull requests is enough for
   // the link to lead somewhere.
-  const pullRequestsSupported = environments.some(
-    (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
-  );
+  const isWorkMode = useIsWorkMode();
+  const pullRequestsSupported =
+    !isWorkMode &&
+    environments.some(
+      (environment) => environment.serverConfig?.environment.capabilities.pullRequests === true,
+    );
   const closeMobileSidebar = useCallback(() => {
     if (isMobile) {
       setOpenMobile(false);

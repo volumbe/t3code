@@ -1,13 +1,37 @@
-# Vivek desktop build
+# T3 Work
 
-This fork keeps the upstream T3 server protocol. The first UI change removes
-the empty Add action button, Open, and Git actions from the chat header. It
-also hides the terminal drawer toggle there. The header change does not alter
-the underlying server operations or terminal keyboard shortcut.
+This fork keeps the upstream T3 server protocol, so it connects to an
+unmodified T3 server of the same version. All changes are in the desktop and
+web client.
+
+## Code and Work modes
+
+The sidebar brand ("T3 Code" / "T3 Work") is a menu that switches modes. The
+choice is stored locally under `t3work:work-mode:v1`.
+
+- **Code** is upstream T3 Code: project sidebar, terminal, actions, Open in,
+  and Git controls.
+- **Work** hides coding controls: the header's actions, Open in, and Git
+  controls; the terminal toggle, drawer, and shortcuts; the diff shortcut; the
+  branch and worktree selectors; Pull Requests; and the terminal, diff,
+  pull request, and device surfaces in the right panel. Its sidebar is a folder
+  tree (`apps/web/src/components/work/WorkSidebar.tsx`). Folders are
+  client-side only: they record which folder each `environmentId:threadId` is
+  filed in and do not change server threads. Deleting a folder moves its
+  chats and subfolders up one level.
+
+In both modes, the right panel's **Chat** surface shows another chat from the
+same project beside the main thread
+(`apps/web/src/components/work/DockChatPanel.tsx`). It can start a new chat or
+open an existing one. It is a compact transcript and composer, not a second
+`ChatView`, because `ChatView` owns window-wide shortcuts and route-driven
+draft state. Approvals and questions are answered in the main view.
 
 ## Mac app
 
-The packaged app is `T3 Code (Vivek)` with bundle ID `com.volumbe.t3code`.
+The packaged app is `T3 Work` with bundle ID `com.volumbe.t3code`. Earlier
+builds were named `T3 Code (Vivek)`; the rename keeps the same bundle ID and
+data directories, so saved connections carry over.
 It stores its desktop state in `~/.t3-vivek/userdata` and its Electron data in
 `~/Library/Application Support/t3code-vivek`. It does not register as the
 macOS handler for `t3code://` links, so the upstream app can stay installed.
@@ -37,9 +61,9 @@ The DMG and ZIP go to `release/`. Quit the fork before replacing it. To install
 the ZIP on this Mac:
 
 ```sh
-ditto -x -k release/T3-Code-Vivek-0.0.42-arm64.zip /Applications
-codesign --force --deep --sign - '/Applications/T3 Code (Vivek).app'
-codesign --verify --deep --strict '/Applications/T3 Code (Vivek).app'
+ditto -x -k release/T3-Work-0.0.42-arm64.zip /Applications
+codesign --force --deep --sign - '/Applications/T3 Work.app'
+codesign --verify --deep --strict '/Applications/T3 Work.app'
 ```
 
 The local app uses an ad hoc signature. Distribution to another Mac requires

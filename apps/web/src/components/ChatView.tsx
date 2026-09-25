@@ -483,6 +483,8 @@ import { fileAttachmentCapabilityBlockReason } from "./chat/composerAttachmentFi
 import { assetEnvironment } from "../state/assets";
 import { readPreparedConnection } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
+import { isWorkModeActive, useIsWorkMode } from "../workModeStore";
+import { DockChatPanel } from "./work/DockChatPanel";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { Button } from "./ui/button";
 import {
@@ -2096,6 +2098,7 @@ export default function ChatView(props: ChatViewProps) {
     [activeThread?.environmentId, activeThread?.projectId],
   );
   const activeProject = useProject(activeProjectRef);
+  const isWorkMode = useIsWorkMode();
   // Environment settings with the active project's overrides applied.
   const activeProjectSettings = useMemo(
     () => resolveProjectSettings(settings, activeProject?.id ?? null, activeProject ?? undefined),
@@ -3698,14 +3701,16 @@ export default function ChatView(props: ChatViewProps) {
   // Keep a hidden, off-flow strip mounted for existing threads so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
+  // Work mode drops the strip (environment and branch). The composer keeps its
+  // controls inline, and the chat header shows a remote environment instead.
   const mountComposerContextStrip = shouldShowComposerContextStrip({
-    hasActiveProject: activeProject !== null,
+    hasActiveProject: activeProject !== null && !isWorkMode,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
-    hasActiveProject: activeProject !== null,
+    hasActiveProject: activeProject !== null && !isWorkMode,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
@@ -4510,6 +4515,11 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "agents");
   }, [activeThreadRef]);
+  const chatSurfaceAvailable = isServerThread && activeProject !== null;
+  const addChatSurface = useCallback(() => {
+    if (!activeThreadRef || !chatSurfaceAvailable) return;
+    useRightPanelStore.getState().openChat(activeThreadRef, null);
+  }, [activeThreadRef, chatSurfaceAvailable]);
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
   const visiblePullRequestCount = visibleThreadPullRequests(
@@ -4628,6 +4638,24 @@ export default function ChatView(props: ChatViewProps) {
     readonly threadKey: string;
     readonly reference: ThreadLinkedPullRequest | null;
   } | null>(null);
+  const openProjectPullRequest = useCallback(
+    (number: number) => {
+      if (
+        !supportsPullRequests ||
+        !activeThreadRef ||
+        !activeProject ||
+        activeProjectRepository === null
+      ) {
+        return;
+      }
+      useRightPanelStore.getState().openPullRequest(activeThreadRef, {
+        projectId: activeProject.id,
+        repository: activeProjectRepository,
+        number,
+      });
+    },
+    [activeProject, activeProjectRepository, activeThreadRef, supportsPullRequests],
+  );
   const proactivePanelObservationRef = useRef<ReturnType<
     typeof observeProactivePanelUserChoice
   > | null>(null);
@@ -6638,7 +6666,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.toggle") {
+      if (command === "terminal.toggle" && !isWorkModeActive()) {
         event.preventDefault();
         event.stopPropagation();
         toggleTerminalVisibility();
@@ -6669,7 +6697,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.split") {
+      if (command === "terminal.split" && !isWorkModeActive()) {
         event.preventDefault();
         event.stopPropagation();
         if (terminalFocusOwner === "right-panel") {
@@ -6683,7 +6711,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.splitVertical") {
+      if (command === "terminal.splitVertical" && !isWorkModeActive()) {
         event.preventDefault();
         event.stopPropagation();
         if (terminalFocusOwner === "right-panel") {
@@ -6697,7 +6725,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.close") {
+      if (command === "terminal.close" && !isWorkModeActive()) {
         event.preventDefault();
         event.stopPropagation();
         if (terminalFocusOwner === "right-panel" && activeRightPanelSurface?.kind === "terminal") {
@@ -6709,7 +6737,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.new") {
+      if (command === "terminal.new" && !isWorkModeActive()) {
         event.preventDefault();
         event.stopPropagation();
         if (terminalFocusOwner === "right-panel") {
@@ -6723,7 +6751,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "diff.toggle") {
+      if (command === "diff.toggle" && !isWorkModeActive()) {
         event.preventDefault();
         event.stopPropagation();
         onToggleDiff();
@@ -9079,7 +9107,7 @@ export default function ChatView(props: ChatViewProps) {
 
   const panelToggleControls = (
     <PanelLayoutControls
-      showTerminalControl={false}
+      showTerminalControl={!isWorkMode}
       terminalAvailable={activeProject !== null}
       terminalOpen={terminalUiState.terminalOpen}
       terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
@@ -9228,6 +9256,18 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
+    ) : renderedRightPanelSurface?.kind === "chat" && activeThreadRef && activeProject ? (
+      <DockChatPanel
+        key={renderedRightPanelSurface.id}
+        hostThreadRef={activeThreadRef}
+        surface={renderedRightPanelSurface}
+        project={activeProject}
+        defaults={{
+          modelSelection: activeThread.modelSelection,
+          runtimeMode: activeThread.runtimeMode,
+          interactionMode: activeThread.interactionMode,
+        }}
+      />
     ) : renderedRightPanelSurface?.kind === "agents" ? (
       <AgentsPanel
         model={agentPanelModel}
@@ -9349,17 +9389,24 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           <ChatHeader
+            {...(!supportsPullRequests || activeProjectRepository === null
+              ? {}
+              : { onOpenPullRequest: openProjectPullRequest })}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
+            {...(routeKind === "draft" && draftId ? { draftId } : {})}
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
             activeProject={activeProject}
+            openInCwd={gitCwd}
             activeProjectScripts={activeProjectScripts}
             preferredScriptId={
               activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
             }
             keybindings={keybindings}
+            availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
+            gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettings }
@@ -9714,7 +9761,7 @@ export default function ChatView(props: ChatViewProps) {
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
                                 threadId={activeThread.id}
-                                showGitControls={isGitRepo}
+                                showGitControls={isGitRepo && !isWorkMode}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChange}
                                 startFromOrigin={startFromOrigin}
@@ -9822,24 +9869,31 @@ export default function ChatView(props: ChatViewProps) {
         </div>
         {/* end horizontal flex container */}
 
-        {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
-          <PersistentThreadTerminalDrawer
-            key={mountedThreadKey}
-            threadRef={mountedThreadRef}
-            threadId={mountedThreadRef.threadId}
-            active={mountedThreadKey === activeThreadKey}
-            launchContext={
-              mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
-            }
-            focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
-            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-            splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
-            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-            keybindings={keybindings}
-            onAddTerminalContext={addTerminalContextToDraft}
-          />
-        ))}
+        {/* Work mode hides the drawer without unmounting it, so terminal sessions keep running. */}
+        <div className={isWorkMode ? "hidden" : "contents"}>
+          {mountedTerminalThreadRefs.map(
+            ({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
+              <PersistentThreadTerminalDrawer
+                key={mountedThreadKey}
+                threadRef={mountedThreadRef}
+                threadId={mountedThreadRef.threadId}
+                active={mountedThreadKey === activeThreadKey}
+                launchContext={
+                  mountedThreadKey === activeThreadKey
+                    ? (activeTerminalLaunchContext ?? null)
+                    : null
+                }
+                focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
+                splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+                splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
+                newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+                closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+                keybindings={keybindings}
+                onAddTerminalContext={addTerminalContextToDraft}
+              />
+            ),
+          )}
+        </div>
       </div>
 
       {rightPanelPresent && !shouldUseRightPanelSheet && activeThreadRef ? (
@@ -9875,6 +9929,8 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequests={addPullRequestsSurface}
           onAddAgents={addAgentsSurface}
           onAddDevice={addDeviceSurface}
+          onAddChat={chatSurfaceAvailable ? addChatSurface : undefined}
+          codingSurfacesHidden={isWorkMode}
           browserAvailable={isPreviewSupportedInRuntime()}
           terminalAvailable={activeProject !== null}
           diffAvailable={isServerThread && isGitRepo}
@@ -9933,6 +9989,8 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequests={addPullRequestsSurface}
             onAddAgents={addAgentsSurface}
             onAddDevice={addDeviceSurface}
+            onAddChat={chatSurfaceAvailable ? addChatSurface : undefined}
+            codingSurfacesHidden={isWorkMode}
             browserAvailable={isPreviewSupportedInRuntime()}
             terminalAvailable={activeProject !== null}
             diffAvailable={isServerThread && isGitRepo}
