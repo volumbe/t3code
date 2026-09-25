@@ -27,12 +27,13 @@ choice is stored locally under `t3work:work-mode:v1`.
 
 In both modes, the right panel's **Chat** surface shows another chat from the
 same project beside the main thread
-(`apps/web/src/components/work/DockChatPanel.tsx`), with no header of its own.
-Its picker starts a new chat or opens an existing one. It is a transcript above the real
-`ChatComposer`, not a second `ChatView`, because `ChatView` owns window-wide
-shortcuts and route-driven draft state. Composer shortcuts belong to whichever
-composer holds focus (`apps/web/src/components/chat/composerEventScope.ts`).
-Questions are answered in the main view.
+(`apps/web/src/components/work/DockChatPanel.tsx`). Its picker starts a new
+chat or opens an existing one. The chat itself is the real `ChatView` in
+embedded mode (`embedded` prop): same timeline and composer, but no header,
+right panel, terminal, or route changes. Window-level shortcuts, typing, and
+paste go to the chat that holds focus or was clicked last
+(`apps/web/src/components/chat/composerEventScope.ts`). Clicking into one
+chat blurs the other chat's composer and rests it into its compact bar.
 
 ## Mac app
 

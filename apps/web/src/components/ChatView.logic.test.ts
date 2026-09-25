@@ -686,6 +686,25 @@ describe("resolveThreadSwitchTimeline", () => {
     ).toEqual({ entries: [], displayThreadKey: "env-1:thread-a" });
   });
 
+  it("holds no previous timeline when told there is none", () => {
+    rememberReadyThreadTimeline(held);
+    expect(
+      resolveThreadSwitchTimeline({
+        loading: true,
+        activeThreadKey: "env-1:thread-b",
+        nextEntries: [],
+      }),
+    ).toEqual({ entries: ["a1", "a2"], displayThreadKey: "env-1:thread-a" });
+    expect(
+      resolveThreadSwitchTimeline({
+        loading: true,
+        activeThreadKey: "env-1:thread-b",
+        nextEntries: [],
+        lastReady: null,
+      }),
+    ).toEqual({ entries: [], displayThreadKey: "env-1:thread-b" });
+  });
+
   it("keeps the held thread workspace cwd with the snapshot", () => {
     rememberReadyThreadTimeline({
       ...held,

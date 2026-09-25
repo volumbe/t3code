@@ -1220,6 +1220,12 @@ export interface ChatComposerHandle {
   /** Expand the desktop composer at the timeline end without taking focus. */
   restoreAfterTimelineReachedEnd: () => void;
   collapseForTimelineScrollKey: (key: string) => void;
+  /**
+   * Blur a focused composer and rest it, as a timeline scroll would, when the
+   * user moves into another chat. A composer that could not rest on a scroll,
+   * such as one above a thread that fits the viewport, only blurs.
+   */
+  restAndBlur: () => void;
   addDroppedFiles: (files: File[]) => void;
   hasPendingAttachments: () => boolean;
   insertTextAtEnd: (
@@ -2101,6 +2107,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const mobileComposerExpandInFlightRef = useRef(false);
   const composerScrollCollapseTimeoutRef = useRef<number | null>(null);
   const composerScrollCollapseEligibleRef = useRef(false);
+  const timelineOverflowsRef = useRef(false);
   const windowRefocusInFlightRef = useRef(false);
   const composerScrollGestureRef = useRef(createComposerScrollGestureState());
   const stashPulseKeyRef = useRef(0);
@@ -4740,6 +4747,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // focused or not, so the wheel handler keys off the resting state rather
   // than editor focus.
   composerScrollCollapseEligibleRef.current = canScrollCollapseComposer && !isComposerResting;
+  useLayoutEffect(() => {
+    timelineOverflowsRef.current = timelineOverflows;
+  }, [timelineOverflows]);
 
   useEffect(() => {
     if (!canScrollCollapseComposer) {
@@ -5707,6 +5717,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             isAtLogicalEnd: isTimelineAtLogicalEnd(),
           })
         ) {
+          setIsComposerScrollCollapsed(true);
+        }
+      },
+      restAndBlur: () => {
+        const activeElement = document.activeElement;
+        if (
+          !(activeElement instanceof HTMLElement) ||
+          !composerFormRef.current?.contains(activeElement)
+        ) {
+          return;
+        }
+        activeElement.blur();
+        if (composerScrollCollapseEligibleRef.current && timelineOverflowsRef.current) {
           setIsComposerScrollCollapsed(true);
         }
       },

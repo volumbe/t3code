@@ -441,6 +441,7 @@ export function resolveThreadSwitchTimeline<T extends readonly unknown[]>(input:
   activeThreadKey: string | null;
   nextEntries: T;
   rememberedForActive?: T | null;
+  /** The previous thread's timeline; omitted reads the held one, null holds none. */
   lastReady?: HeldThreadTimeline<T> | null;
 }): { entries: T; displayThreadKey: string | null } {
   if (input.nextEntries.length > 0) {
@@ -453,7 +454,7 @@ export function resolveThreadSwitchTimeline<T extends readonly unknown[]>(input:
     return { entries: rememberedForActive, displayThreadKey: input.activeThreadKey };
   }
 
-  const lastReady = input.lastReady ?? peekHeldThreadTimeline<T>();
+  const lastReady = input.lastReady === undefined ? peekHeldThreadTimeline<T>() : input.lastReady;
   if (
     input.loading &&
     lastReady !== null &&
