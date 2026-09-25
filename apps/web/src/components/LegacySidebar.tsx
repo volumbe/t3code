@@ -253,6 +253,10 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
 };
 const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
   "inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-icon-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
+// Work rows swap the status icon for archive in place, so the button takes the
+// status icon's 16px box; the pseudo-element keeps a 24px hit area.
+const WORK_ARCHIVE_BUTTON_CLASS =
+  "relative inline-flex size-4 cursor-pointer items-center justify-center rounded-sm text-icon-muted before:absolute before:-inset-1 before:content-[''] hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
 
 function SidebarThreadDetailPrewarmer({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
   useEnvironmentThread(threadRef.environmentId, threadRef.threadId);
@@ -538,6 +542,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       : "pointer-events-none";
   // Work mode swaps the status icon for the archive button on hover, both in
   // the icon row's flow; Code mode overlays the archive button on the timestamp.
+  const archiveButtonClassName = isWorkMode
+    ? WORK_ARCHIVE_BUTTON_CLASS
+    : SIDEBAR_ICON_ACTION_BUTTON_CLASS;
   const archiveActionClassName = isWorkMode
     ? "hidden max-sm:flex group-hover/menu-sub-item:flex group-focus-within/menu-sub-item:flex"
     : "pointer-events-none absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100";
@@ -930,7 +937,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     data-thread-selection-safe
                     data-testid={`thread-archive-${thread.id}`}
                     aria-label={`Archive ${thread.title}`}
-                    className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                    className={archiveButtonClassName}
                     onPointerDown={stopPropagationOnPointerDown}
                     onClick={handleStartArchiveConfirmation}
                   >
@@ -947,7 +954,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           data-thread-selection-safe
                           data-testid={`thread-archive-${thread.id}`}
                           aria-label={`Archive ${thread.title}`}
-                          className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                          className={archiveButtonClassName}
                           onPointerDown={stopPropagationOnPointerDown}
                           onClick={handleArchiveImmediateClick}
                         >
