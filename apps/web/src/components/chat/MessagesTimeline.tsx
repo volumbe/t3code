@@ -1500,6 +1500,26 @@ function WorktreeSetupTimelineRow({
 }
 
 /** A message waiting for the running turn: a dashed user bubble with icon actions inside it. */
+const ignoreQueuedContextAction = () => {};
+
+/**
+ * A queued message's context records are built only when it sends, so its
+ * inline references render from their labels until then.
+ */
+function renderQueuedContextReference(reference: ChatMarkdownContextReference): ReactNode {
+  return (
+    <UserMessageContextReferenceChip
+      reference={reference}
+      record={undefined}
+      annotationImage={null}
+      attachment={null}
+      onExpandImage={ignoreQueuedContextAction}
+      onExpandVideo={ignoreQueuedContextAction}
+      onOpenFile={ignoreQueuedContextAction}
+    />
+  );
+}
+
 function QueuedMessageTimelineRow({
   row,
 }: {
@@ -1522,7 +1542,12 @@ function QueuedMessageTimelineRow({
     <div className="flex flex-col items-end" data-queued-message-id={queuedMessage.id}>
       <div className="max-w-[80%] rounded-2xl border border-dashed border-border p-3 text-message-foreground/80">
         {text.length > 0 ? (
-          <div className="whitespace-pre-wrap break-words text-sm">{text}</div>
+          <CollapsibleUserMessageBody
+            text={text}
+            renderContextReference={renderQueuedContextReference}
+            skills={ctx.skills}
+            markdownCwd={ctx.markdownCwd}
+          />
         ) : null}
         {attachmentCount > 0 || contextCount > 0 ? (
           <div className={cn("text-secondary-label text-xs", text.length > 0 && "mt-1.5")}>

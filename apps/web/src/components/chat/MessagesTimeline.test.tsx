@@ -739,6 +739,35 @@ describe("MessagesTimeline", () => {
     expect(onAnchorReady).not.toHaveBeenCalled();
   });
 
+  it("renders a queued message's markdown the same way as a sent one", () => {
+    // Citation links render as chips through this same markdown body; the chip
+    // itself needs a router, so the check uses plain markdown.
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[buildUserTimelineEntry("First prompt.")]}
+        queuedMessages={[
+          {
+            id: "queued-1",
+            prompt: "Please **double-check** this",
+            images: [],
+            files: [],
+            terminalContexts: [],
+            previewAnnotations: [],
+            reviewComments: [],
+            submissionIntent: "foreground",
+            queuedAfterToolActivityId: null,
+            createdAt: "2026-09-25T12:00:00.000Z",
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('data-queued-message-id="queued-1"');
+    expect(markup).toContain("<strong>double-check</strong>");
+    expect(markup).not.toContain("**double-check**");
+  });
+
   it("gives browser documents separate preview and download controls", () => {
     const entry = {
       ...buildUserTimelineEntry("Read the report."),
