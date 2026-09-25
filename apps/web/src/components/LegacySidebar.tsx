@@ -536,6 +536,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : !isThreadRunning
       ? "pointer-events-none transition-opacity duration-150 max-sm:pr-6 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
       : "pointer-events-none";
+  // Work mode swaps the status icon for the archive button on hover, both in
+  // the icon row's flow; Code mode overlays the archive button on the timestamp.
+  const archiveActionClassName = isWorkMode
+    ? "hidden max-sm:flex group-hover/menu-sub-item:flex group-focus-within/menu-sub-item:flex"
+    : "pointer-events-none absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100";
+  const workThreadMetaClassName = isConfirmingArchive
+    ? "hidden"
+    : isThreadRunning
+      ? "pointer-events-none flex"
+      : "pointer-events-none flex group-hover/menu-sub-item:hidden group-focus-within/menu-sub-item:hidden";
   const clearConfirmingArchive = useCallback(() => {
     setConfirmingArchiveThreadKey((current) => (current === threadKey ? null : current));
   }, [setConfirmingArchiveThreadKey, threadKey]);
@@ -888,8 +898,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           <div
             className={
               isWorkMode
-                ? // No timestamp in Work mode: reserve only the archive button's width.
-                  "flex min-w-5 justify-end"
+                ? // Work mode reserves no slot: status and archive flow with the icons,
+                  // so whatever the row shows packs against its end.
+                  "contents"
                 : `flex min-w-12 justify-end ${
                     isRemoteThread ? "max-sm:min-w-24" : "max-sm:min-w-20"
                   }`
@@ -902,7 +913,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 data-thread-selection-safe
                 data-testid={`thread-archive-confirm-${thread.id}`}
                 aria-label={`Confirm archive ${thread.title}`}
-                className="absolute top-1/2 right-1 inline-flex h-5 -translate-y-1/2 cursor-pointer items-center rounded-md bg-destructive/12 px-2 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40"
+                className={cn(
+                  "inline-flex h-5 cursor-pointer items-center rounded-md bg-destructive/12 px-2 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40",
+                  !isWorkMode && "absolute top-1/2 right-1 -translate-y-1/2",
+                )}
                 onPointerDown={stopPropagationOnPointerDown}
                 onClick={handleConfirmArchiveClick}
               >
@@ -910,7 +924,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               </button>
             ) : !isThreadRunning ? (
               appSettingsConfirmThreadArchive ? (
-                <div className="pointer-events-none absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+                <div className={archiveActionClassName}>
                   <button
                     type="button"
                     data-thread-selection-safe
@@ -927,7 +941,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <div className="pointer-events-none absolute top-1/2 right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+                      <div className={archiveActionClassName}>
                         <button
                           type="button"
                           data-thread-selection-safe
@@ -946,38 +960,40 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 </Tooltip>
               )
             ) : null}
-            <span className={threadMetaClassName}>
-              <span className="inline-flex items-center gap-1">
-                {isWorkMode ? null : remoteMachineIndicator}
-                {jumpLabel ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span
-                          aria-label={jumpLabel}
-                          className="inline-flex h-5 items-center rounded-full border border-border/80 bg-background/90 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
-                        />
-                      }
+            {isWorkMode && !threadStatus && !jumpLabel ? null : (
+              <span className={isWorkMode ? workThreadMetaClassName : threadMetaClassName}>
+                <span className="inline-flex items-center gap-1">
+                  {isWorkMode ? null : remoteMachineIndicator}
+                  {jumpLabel ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span
+                            aria-label={jumpLabel}
+                            className="inline-flex h-5 items-center rounded-full border border-border/80 bg-background/90 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
+                          />
+                        }
+                      >
+                        {jumpLabel}
+                      </TooltipTrigger>
+                      <TooltipPopup side="top">{jumpLabel}</TooltipPopup>
+                    </Tooltip>
+                  ) : isWorkMode ? (
+                    threadStatus && <ThreadStatusIcon status={threadStatus} />
+                  ) : (
+                    <span
+                      className={`text-[10px] tabular-nums ${
+                        isHighlighted ? "text-foreground" : "text-secondary-label"
+                      }`}
                     >
-                      {jumpLabel}
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">{jumpLabel}</TooltipPopup>
-                  </Tooltip>
-                ) : isWorkMode ? (
-                  threadStatus && <ThreadStatusIcon status={threadStatus} />
-                ) : (
-                  <span
-                    className={`text-[10px] tabular-nums ${
-                      isHighlighted ? "text-foreground" : "text-secondary-label"
-                    }`}
-                  >
-                    {formatRelativeTimeLabel(
-                      thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
-                    )}
-                  </span>
-                )}
+                      {formatRelativeTimeLabel(
+                        thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
+                      )}
+                    </span>
+                  )}
+                </span>
               </span>
-            </span>
+            )}
           </div>
         </div>
       </SidebarMenuSubButton>

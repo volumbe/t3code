@@ -6854,7 +6854,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.toggle" && !isWorkModeActive()) {
+      if (command === "terminal.toggle") {
         event.preventDefault();
         event.stopPropagation();
         toggleTerminalVisibility();
@@ -6885,7 +6885,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.split" && !isWorkModeActive()) {
+      if (command === "terminal.split") {
         event.preventDefault();
         event.stopPropagation();
         if (terminalFocusOwner === "right-panel") {
@@ -6899,7 +6899,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.splitVertical" && !isWorkModeActive()) {
+      if (command === "terminal.splitVertical") {
         event.preventDefault();
         event.stopPropagation();
         if (terminalFocusOwner === "right-panel") {
@@ -6913,7 +6913,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.close" && !isWorkModeActive()) {
+      if (command === "terminal.close") {
         event.preventDefault();
         event.stopPropagation();
         if (terminalFocusOwner === "right-panel" && activeRightPanelSurface?.kind === "terminal") {
@@ -6925,7 +6925,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
-      if (command === "terminal.new" && !isWorkModeActive()) {
+      if (command === "terminal.new") {
         event.preventDefault();
         event.stopPropagation();
         if (terminalFocusOwner === "right-panel") {
@@ -9332,7 +9332,6 @@ export default function ChatView(props: ChatViewProps) {
 
   const panelToggleControls = (
     <PanelLayoutControls
-      showTerminalControl={!isWorkMode}
       terminalAvailable={activeProject !== null}
       terminalOpen={terminalUiState.terminalOpen}
       terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
@@ -10166,31 +10165,24 @@ export default function ChatView(props: ChatViewProps) {
 
         {chatColumn}
 
-        {/* Work mode hides the drawer without unmounting it, so terminal sessions keep running. */}
-        <div className={isWorkMode ? "hidden" : "contents"}>
-          {mountedTerminalThreadRefs.map(
-            ({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
-              <PersistentThreadTerminalDrawer
-                key={mountedThreadKey}
-                threadRef={mountedThreadRef}
-                threadId={mountedThreadRef.threadId}
-                active={mountedThreadKey === activeThreadKey}
-                launchContext={
-                  mountedThreadKey === activeThreadKey
-                    ? (activeTerminalLaunchContext ?? null)
-                    : null
-                }
-                focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
-                splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-                splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
-                newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-                closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-                keybindings={keybindings}
-                onAddTerminalContext={addTerminalContextToDraft}
-              />
-            ),
-          )}
-        </div>
+        {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
+          <PersistentThreadTerminalDrawer
+            key={mountedThreadKey}
+            threadRef={mountedThreadRef}
+            threadId={mountedThreadRef.threadId}
+            active={mountedThreadKey === activeThreadKey}
+            launchContext={
+              mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
+            }
+            focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
+            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+            splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
+            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+            keybindings={keybindings}
+            onAddTerminalContext={addTerminalContextToDraft}
+          />
+        ))}
       </div>
 
       {rightPanelPresent && !shouldUseRightPanelSheet && activeThreadRef ? (

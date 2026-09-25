@@ -12,10 +12,10 @@ choice is stored locally under `t3work:work-mode:v1`.
 - **Code** is upstream T3 Code: project sidebar, terminal, actions, Open in,
   and Git controls.
 - **Work** hides coding controls: the header's actions, Open in, and Git
-  controls; the terminal toggle, drawer, and shortcuts; the diff shortcut;
-  Pull Requests; and the terminal, diff, pull request, and device surfaces in
-  the right panel. It keeps the workspace (current checkout or worktree) and
-  branch strip under the composer. Its sidebar has **Projects** that you
+  controls; the diff shortcut; Pull Requests; and the terminal, diff, pull
+  request, and device surfaces in the right panel. It keeps the bottom terminal
+  drawer with its toggle and shortcuts, and the workspace (current checkout or
+  worktree) and branch strip under the composer. Its sidebar has **Projects** that you
   create, not tied to a repository, and **Chats**, every chat in none of them
   (`apps/web/src/components/LegacySidebar.tsx`,
   `apps/web/src/components/work/workChats.logic.ts`). Drag chats onto a project,
@@ -25,7 +25,8 @@ choice is stored locally under `t3work:work-mode:v1`.
   run in a repository project. Deleting a Work project moves its chats back to
   Chats. The chat header shows the machine icon for chats on another machine.
   Work chat rows start with that machine icon and end with one status icon, no
-  label (`ThreadStatusIcon` in `apps/web/src/components/ThreadStatusIndicators.tsx`):
+  label. Row icons reserve no columns: they pack against the row's end, and on
+  hover the archive button takes the status icon's place (`ThreadStatusIcon` in `apps/web/src/components/ThreadStatusIndicators.tsx`):
   a rotating dashed circle for Working and Connecting (still under Reduce
   Motion), still icons for Monitoring (an eye), approval, input, Plan Ready,
   and Failed, and a dot for an unseen completion.
