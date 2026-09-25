@@ -6,7 +6,6 @@ import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
-  FolderIcon,
   FolderPlusIcon,
   Globe2Icon,
   SearchIcon,
@@ -81,7 +80,7 @@ import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { releaseProjectDraftUploads } from "../lib/composerDraftUploads";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isMacPlatform } from "../lib/utils";
+import { cn, isMacPlatform } from "../lib/utils";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import {
@@ -219,7 +218,10 @@ import {
   applyWorkThreadMenuAction,
   buildWorkThreadMenuItemsForKeys,
   groupWorkThreads,
+  isWorkProjectDrag,
   isWorkThreadDrag,
+  resolveDropPosition,
+  WORK_PROJECT_DRAG_TYPE,
   readWorkThreadDrag,
   writeWorkThreadDrag,
 } from "./work/workChats.logic";
@@ -722,6 +724,46 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     [attemptArchiveThread, threadRef],
   );
   const rowButtonRender = useMemo(() => <div role="button" tabIndex={0} />, []);
+  // Work mode moves PR status to the end of the row, beside the worktree icon.
+  const prIndicator = (
+    <>
+      {prStatus && pr && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <a
+                href={prStatus.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={prStatus.tooltip}
+                className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={handlePrClick}
+              >
+                <ChangeRequestStatusIcon state={pr.state} isDraft={pr.isDraft} className="size-3" />
+              </a>
+            }
+          />
+          <TooltipPopup side="top">
+            <PrStatusTooltipContent status={prStatus} />
+          </TooltipPopup>
+        </Tooltip>
+      )}
+      {!pr && currentLinkedPr ? (
+        <a
+          href={currentLinkedPr.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={handlePrClick}
+          className="text-muted-foreground"
+          aria-label={`PR #${currentLinkedPr.number}, status pending`}
+        >
+          <GitPullRequestIcon className="size-3" />
+        </a>
+      ) : null}
+    </>
+  );
 
   return (
     <SidebarMenuSubItem
@@ -749,45 +791,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         onContextMenu={handleRowContextMenu}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          {prStatus && pr && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <a
-                    href={prStatus.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={prStatus.tooltip}
-                    className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={handlePrClick}
-                  >
-                    <ChangeRequestStatusIcon
-                      state={pr.state}
-                      isDraft={pr.isDraft}
-                      className="size-3"
-                    />
-                  </a>
-                }
-              />
-              <TooltipPopup side="top">
-                <PrStatusTooltipContent status={prStatus} />
-              </TooltipPopup>
-            </Tooltip>
-          )}
-          {!pr && currentLinkedPr ? (
-            <a
-              href={currentLinkedPr.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={handlePrClick}
-              className="text-muted-foreground"
-              aria-label={`PR #${currentLinkedPr.number}, status pending`}
-            >
-              <GitPullRequestIcon className="size-3" />
-            </a>
-          ) : null}
+          {isWorkMode ? null : prIndicator}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
           {renamingThreadKey === threadKey ? (
             <input
@@ -840,6 +844,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </Tooltip>
           )}
           <ThreadWorktreeIndicator thread={thread} />
+          {isWorkMode ? prIndicator : null}
           {terminalStatus && (
             <Tooltip>
               <TooltipTrigger
@@ -948,7 +953,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     </TooltipTrigger>
                     <TooltipPopup side="top">{jumpLabel}</TooltipPopup>
                   </Tooltip>
-                ) : (
+                ) : isWorkMode ? null : (
                   <span
                     className={`text-[10px] tabular-nums ${
                       isHighlighted ? "text-foreground" : "text-secondary-label"
@@ -3065,7 +3070,11 @@ interface SidebarWorkSectionsProps {
 }
 
 /** Drop target: a Work project id, or null for Chats. */
-type WorkDropTarget = { projectId: string | null };
+type WorkDropTarget = {
+  projectId: string | null;
+  /** Set while a project is dragged: where it lands relative to this project. */
+  reorder?: "before" | "after";
+};
 
 /**
  * Work mode's sidebar body: user-created Projects, not tied to repositories,
@@ -3274,14 +3283,49 @@ const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWork
 
   const dropHandlers = useCallback(
     (target: WorkDropTarget) => ({
-      onDragOver: (event: React.DragEvent) => {
+      onDragOver: (event: React.DragEvent<HTMLElement>) => {
+        if (isWorkProjectDrag(event.dataTransfer)) {
+          if (target.projectId === null) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "move";
+          const reorder = resolveDropPosition(
+            event.clientY,
+            event.currentTarget.getBoundingClientRect(),
+          );
+          setDropTarget((current) =>
+            current?.projectId === target.projectId && current.reorder === reorder
+              ? current
+              : { projectId: target.projectId, reorder },
+          );
+          return;
+        }
         if (!isWorkThreadDrag(event.dataTransfer)) return;
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = "move";
-        setDropTarget((current) => (current?.projectId === target.projectId ? current : target));
+        setDropTarget((current) =>
+          current?.projectId === target.projectId && current.reorder === undefined
+            ? current
+            : target,
+        );
       },
-      onDrop: (event: React.DragEvent) => {
+      onDrop: (event: React.DragEvent<HTMLElement>) => {
+        const draggedProjectId = event.dataTransfer.getData(WORK_PROJECT_DRAG_TYPE);
+        if (draggedProjectId) {
+          if (target.projectId === null) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setDropTarget(null);
+          useWorkModeStore
+            .getState()
+            .reorderFolder(
+              draggedProjectId,
+              target.projectId,
+              resolveDropPosition(event.clientY, event.currentTarget.getBoundingClientRect()),
+            );
+          return;
+        }
         const threadKeys = readWorkThreadDrag(event.dataTransfer);
         if (!threadKeys) return;
         event.preventDefault();
@@ -3359,20 +3403,36 @@ const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWork
   const renderProject = (node: WorkFolderNode): React.ReactNode => {
     const { folder } = node;
     const expanded = !collapsedProjectIds.has(folder.id);
-    const isDropTarget = dropTarget?.projectId === folder.id;
+    const isDropTarget = dropTarget?.projectId === folder.id && dropTarget.reorder === undefined;
+    const reorderMarker = dropTarget?.projectId === folder.id ? dropTarget.reorder : undefined;
     const indentStyle = { paddingLeft: `${8 + node.depth * WORK_PROJECT_INDENT_PX}px` };
     return (
-      <SidebarMenuItem key={folder.id} className="rounded-md">
-        <div className="group/project-header relative" {...dropHandlers({ projectId: folder.id })}>
+      <SidebarMenuItem
+        key={folder.id}
+        className={cn(
+          "relative rounded-md transition-colors",
+          isDropTarget && "bg-sidebar-row-hover/60",
+          reorderMarker === "before" &&
+            "before:absolute before:inset-x-1 before:-top-0.5 before:h-0.5 before:rounded-full before:bg-primary",
+          reorderMarker === "after" &&
+            "after:absolute after:inset-x-1 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-primary",
+        )}
+        {...dropHandlers({ projectId: folder.id })}
+      >
+        <div
+          className="group/project-header relative"
+          draggable={editingFolderId !== folder.id}
+          onDragStart={(event) => {
+            event.stopPropagation();
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData(WORK_PROJECT_DRAG_TYPE, folder.id);
+          }}
+        >
           {editingFolderId === folder.id ? (
             <div
               className="flex h-8 w-full items-center gap-[var(--sidebar-control-gap)] pr-2"
               style={indentStyle}
             >
-              <ChevronRightIcon
-                className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 ${expanded ? "rotate-90" : ""}`}
-              />
-              <FolderIcon className="size-3.5 shrink-0 text-icon-muted" />
               <WorkProjectNameInput
                 initialName={folder.name}
                 onCommit={(name) => {
@@ -3385,9 +3445,7 @@ const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWork
             </div>
           ) : (
             <SidebarMenuButton
-              className={`pr-8 group-hover/project-header:bg-sidebar-row-hover group-hover/project-header:text-sidebar-foreground max-sm:pr-14${
-                isDropTarget ? " ring-1 ring-inset ring-primary/70" : ""
-              }`}
+              className="pr-8 group-hover/project-header:bg-sidebar-row-hover group-hover/project-header:text-sidebar-foreground max-sm:pr-14"
               style={indentStyle}
               onClick={() => useWorkModeStore.getState().setFolderCollapsed(folder.id, expanded)}
               onDoubleClick={() => useWorkModeStore.getState().setEditingFolderId(folder.id)}
@@ -3396,18 +3454,18 @@ const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWork
                 handleProjectContextMenu(node, { x: event.clientX, y: event.clientY });
               }}
             >
-              <ChevronRightIcon
-                className={`-ml-0.5 size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-150 ${
-                  expanded ? "rotate-90" : ""
-                }`}
-              />
-              <span className="flex shrink-0">
-                <FolderIcon className="size-3.5 text-icon-muted" />
-              </span>
-              <span className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="flex min-w-0 flex-1 items-center gap-1">
                 <span className="truncate text-sm font-medium text-sidebar-foreground/90">
                   {folder.name}
                 </span>
+                {/* Collapse state shows on hover, right of the name. */}
+                <ChevronRightIcon
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-150 group-hover/project-header:opacity-100",
+                    expanded && "rotate-90",
+                  )}
+                />
               </span>
             </SidebarMenuButton>
           )}

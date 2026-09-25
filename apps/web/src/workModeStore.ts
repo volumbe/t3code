@@ -165,6 +165,40 @@ export function fileThreads(
   return { ...data, threadFolderByKey };
 }
 
+/**
+ * Move a folder next to a sibling, before or after it, taking the sibling's
+ * parent. Refuses to move a folder into its own subtree.
+ */
+export function reorderFolder(
+  data: WorkModeData,
+  folderId: string,
+  targetId: string,
+  position: "before" | "after",
+): WorkModeData {
+  if (folderId === targetId) return data;
+  const folder = data.folders.find((entry) => entry.id === folderId);
+  const target = data.folders.find((entry) => entry.id === targetId);
+  if (!folder || !target) return data;
+  if (
+    target.parentId !== null &&
+    collectFolderSubtreeIds(data.folders, folderId).has(target.parentId)
+  ) {
+    return data;
+  }
+  const rest = data.folders.filter((entry) => entry.id !== folderId);
+  const targetIndex = rest.findIndex((entry) => entry.id === targetId);
+  const insertAt = position === "before" ? targetIndex : targetIndex + 1;
+  const moved = { ...folder, parentId: target.parentId };
+  const folders = [...rest.slice(0, insertAt), moved, ...rest.slice(insertAt)];
+  const unchanged = folders.every((entry, index) => {
+    const previous = data.folders[index];
+    return (
+      previous !== undefined && entry.id === previous.id && entry.parentId === previous.parentId
+    );
+  });
+  return unchanged ? data : { ...data, folders };
+}
+
 export function setFolderCollapsed(
   data: WorkModeData,
   folderId: string,
@@ -196,9 +230,7 @@ export interface WorkFolderNode {
   children: WorkFolderNode[];
 }
 
-const folderNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-
-/** Build the folder tree, with siblings sorted by name. */
+/** Build the folder tree. Siblings keep the user's order: the order of `folders`. */
 export function buildWorkFolderTree(folders: ReadonlyArray<WorkFolder>): WorkFolderNode[] {
   const knownIds = new Set(folders.map((folder) => folder.id));
   const childrenByParent = new Map<string | null, WorkFolder[]>();
@@ -212,13 +244,11 @@ export function buildWorkFolderTree(folders: ReadonlyArray<WorkFolder>): WorkFol
   }
   const visited = new Set<string>();
   const build = (parentId: string | null, depth: number): WorkFolderNode[] =>
-    (childrenByParent.get(parentId) ?? [])
-      .toSorted((left, right) => folderNameCollator.compare(left.name, right.name))
-      .flatMap((folder) => {
-        if (visited.has(folder.id)) return [];
-        visited.add(folder.id);
-        return [{ folder, depth, children: build(folder.id, depth + 1) }];
-      });
+    (childrenByParent.get(parentId) ?? []).flatMap((folder) => {
+      if (visited.has(folder.id)) return [];
+      visited.add(folder.id);
+      return [{ folder, depth, children: build(folder.id, depth + 1) }];
+    });
   return build(null, 0);
 }
 
@@ -263,6 +293,7 @@ interface WorkModeStore extends WorkModeData {
   renameFolder: (folderId: string, name: string) => void;
   deleteFolder: (folderId: string) => void;
   moveFolder: (folderId: string, parentId: string | null) => void;
+  reorderFolder: (folderId: string, targetId: string, position: "before" | "after") => void;
   fileThreads: (threadKeys: ReadonlyArray<string>, projectId: string | null) => void;
   setFolderCollapsed: (folderId: string, collapsed: boolean) => void;
   setEditingFolderId: (folderId: string | null) => void;
@@ -300,6 +331,8 @@ export const useWorkModeStore = create<WorkModeStore>()(
       deleteFolder: (folderId) => set((state) => deleteFolder(pickData(state), folderId)),
       moveFolder: (folderId, parentId) =>
         set((state) => moveFolder(pickData(state), folderId, parentId)),
+      reorderFolder: (folderId, targetId, position) =>
+        set((state) => reorderFolder(pickData(state), folderId, targetId, position)),
       fileThreads: (threadKeys, projectId) =>
         set((state) => fileThreads(pickData(state), threadKeys, projectId)),
       setFolderCollapsed: (folderId, collapsed) =>

@@ -19,6 +19,7 @@ import {
 } from "../../workModeStore";
 
 export const WORK_THREAD_DRAG_TYPE = "application/x-t3work-threads";
+export const WORK_PROJECT_DRAG_TYPE = "application/x-t3work-project";
 
 export interface WorkThreadGroups {
   byProjectId: ReadonlyMap<string, SidebarThreadSummary[]>;
@@ -128,6 +129,15 @@ export function applyWorkThreadMenuAction(
     return true;
   }
   return false;
+}
+
+export function isWorkProjectDrag(dataTransfer: DataTransfer): boolean {
+  return dataTransfer.types.includes(WORK_PROJECT_DRAG_TYPE);
+}
+
+/** Drop before a row when the pointer is in its top half, after it otherwise. */
+export function resolveDropPosition(clientY: number, rect: { top: number; height: number }) {
+  return clientY < rect.top + rect.height / 2 ? ("before" as const) : ("after" as const);
 }
 
 export function isWorkThreadDrag(dataTransfer: DataTransfer): boolean {

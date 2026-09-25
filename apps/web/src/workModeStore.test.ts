@@ -8,6 +8,7 @@ import {
   moveFolder,
   fileThreads,
   renameFolder,
+  reorderFolder,
   resolveThreadWorkProjectId,
   type WorkModeData,
 } from "./workModeStore";
@@ -75,7 +76,7 @@ describe("work folders", () => {
     expect(resolveThreadWorkProjectId(data, "env:t1")).toBe(null);
   });
 
-  it("builds a name-sorted tree and lifts orphans to the top level", () => {
+  it("builds the tree in the user's order and lifts orphans to the top level", () => {
     let data = withFolders();
     data = createFolder(data, { id: "d", name: "Admin", parentId: null, createdAt });
     data = {
@@ -83,7 +84,18 @@ describe("work folders", () => {
       folders: [...data.folders, { id: "e", name: "Orphan", parentId: "gone", createdAt }],
     };
     const tree = buildWorkFolderTree(data.folders);
-    expect(tree.map((node) => node.folder.name)).toEqual(["Admin", "Clients", "Orphan"]);
-    expect(tree[1]?.children[0]?.children[0]?.depth).toBe(2);
+    expect(tree.map((node) => node.folder.name)).toEqual(["Clients", "Admin", "Orphan"]);
+    expect(tree[0]?.children[0]?.children[0]?.depth).toBe(2);
+  });
+
+  it("reorders projects before or after a sibling and refuses cycles", () => {
+    let data = withFolders();
+    data = createFolder(data, { id: "d", name: "Admin", parentId: null, createdAt });
+    data = reorderFolder(data, "d", "a", "before");
+    expect(buildWorkFolderTree(data.folders).map((node) => node.folder.id)).toEqual(["d", "a"]);
+    data = reorderFolder(data, "d", "a", "after");
+    expect(buildWorkFolderTree(data.folders).map((node) => node.folder.id)).toEqual(["a", "d"]);
+    expect(reorderFolder(data, "d", "a", "after")).toBe(data);
+    expect(reorderFolder(data, "a", "c", "before")).toBe(data);
   });
 });
