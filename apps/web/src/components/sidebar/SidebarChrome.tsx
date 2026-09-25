@@ -1,10 +1,8 @@
 import {
   ArrowLeftIcon,
-  BriefcaseIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronDownIcon,
-  CodeIcon,
   GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -88,13 +86,12 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 });
 
 const APP_MODE_OPTIONS = [
-  { mode: "code", label: "Code", description: "Projects, terminals, and Git", icon: CodeIcon },
-  { mode: "work", label: "Work", description: "Folders and chats", icon: BriefcaseIcon },
+  { mode: "code", label: "Code", description: "Projects, terminals, and Git" },
+  { mode: "work", label: "Work", description: "Projects and chats" },
 ] as const satisfies ReadonlyArray<{
   mode: AppMode;
   label: string;
   description: string;
-  icon: typeof CodeIcon;
 }>;
 
 /** "T3 Code" / "T3 Work": the brand doubles as the switch between the two modes. */
@@ -133,10 +130,8 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
       </MenuTrigger>
       <MenuPopup align="start" className="w-60">
         {APP_MODE_OPTIONS.map((option) => {
-          const Icon = option.icon;
           return (
             <MenuItem key={option.mode} onClick={() => setMode(option.mode)}>
-              <Icon className="size-4" />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="font-medium">T3 {option.label}</span>
                 <span className="text-xs text-muted-foreground">{option.description}</span>
