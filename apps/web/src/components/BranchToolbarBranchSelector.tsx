@@ -73,6 +73,7 @@ import {
 } from "./ui/combobox";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { useLocalDraftSession } from "./localDraftSession";
 
 export interface BranchToolbarBranchSelectorHandle {
   open: () => void;
@@ -133,12 +134,17 @@ export function BranchToolbarBranchSelector({
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
   );
-  const draftThread = useComposerDraftStore((store) =>
+  const localDraftSession = useLocalDraftSession();
+  const storedDraftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
+  const draftThread = localDraftSession?.draft ?? storedDraftThread;
   const serverThread = useThreadShell(threadRef);
   const serverSession = serverThread?.session ?? null;
-  const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const storeSetDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const setDraftThreadContext: typeof storeSetDraftThreadContext = localDraftSession
+    ? (_target, patch) => localDraftSession.update(patch)
+    : storeSetDraftThreadContext;
 
   const activeProjectRef = serverThread
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)

@@ -143,10 +143,23 @@ export function DockChatPanel(props: {
     },
     [hostThreadRef, surface.id],
   );
+  // A new chat starts in the host chat's workspace, so it keeps working in the
+  // same worktree unless the user picks a new one.
+  const hostThreadShell = useThreadShell(hostThreadRef);
+  const hostBranch = hostThreadShell?.branch ?? null;
+  const hostWorktreePath = hostThreadShell?.worktreePath ?? null;
   const embedding = useMemo<ChatViewEmbedding>(
     () => ({
       hostThreadRef,
-      ...(isNewChat ? { newThread: { projectId: project.id, fallbackModelSelection } } : {}),
+      ...(isNewChat
+        ? {
+            newThread: {
+              projectId: project.id,
+              fallbackModelSelection,
+              workspace: { branch: hostBranch, worktreePath: hostWorktreePath },
+            },
+          }
+        : {}),
       onThreadCreated,
       onOpenThread,
       autoFocus,
@@ -154,7 +167,9 @@ export function DockChatPanel(props: {
     [
       autoFocus,
       fallbackModelSelection,
+      hostBranch,
       hostThreadRef,
+      hostWorktreePath,
       isNewChat,
       onOpenThread,
       onThreadCreated,

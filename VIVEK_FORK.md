@@ -12,10 +12,10 @@ choice is stored locally under `t3work:work-mode:v1`.
 - **Code** is upstream T3 Code: project sidebar, terminal, actions, Open in,
   and Git controls.
 - **Work** hides coding controls: the header's actions, Open in, and Git
-  controls; the terminal toggle, drawer, and shortcuts; the diff shortcut; the
-  branch and worktree selectors; Pull Requests; and the terminal, diff,
-  pull request, and device surfaces in the right panel; and the environment
-  and branch strip under the composer. Its sidebar has **Projects** that you
+  controls; the terminal toggle, drawer, and shortcuts; the diff shortcut;
+  Pull Requests; and the terminal, diff, pull request, and device surfaces in
+  the right panel. It keeps the workspace (current checkout or worktree) and
+  branch strip under the composer. Its sidebar has **Projects** that you
   create, not tied to a repository, and **Chats**, every chat in none of them
   (`apps/web/src/components/LegacySidebar.tsx`,
   `apps/web/src/components/work/workChats.logic.ts`). Drag chats onto a project,
@@ -24,13 +24,22 @@ choice is stored locally under `t3work:work-mode:v1`.
   `environmentId:threadId` is in and do not change server threads, which still
   run in a repository project. Deleting a Work project moves its chats back to
   Chats. The chat header shows the machine icon for chats on another machine.
+  Work chat rows start with that machine icon and end with one status icon, no
+  label (`ThreadStatusIcon` in `apps/web/src/components/ThreadStatusIndicators.tsx`):
+  a rotating dashed circle for Working and Connecting, a blinking eye for
+  Monitoring, still icons for approval, input, Plan Ready, and Failed, and a
+  dot for an unseen completion. The animations stop under Reduce Motion.
 
 In both modes, the right panel's **Chat** surface shows another chat from the
 same project beside the main thread
 (`apps/web/src/components/work/DockChatPanel.tsx`). Its picker starts a new
 chat or opens an existing one. The chat itself is the real `ChatView` in
-embedded mode (`embedded` prop): same timeline and composer, but no header,
-right panel, terminal, or route changes. Window-level shortcuts, typing, and
+embedded mode (`embedded` prop): same timeline, composer, and workspace strip,
+but no header, right panel, terminal, or route changes. A new chat there
+starts in the main chat's worktree, or its checkout when it has none; the
+strip can switch it to a new worktree. Until its first message, that draft
+lives in the view's state rather than the draft store, so it adds no sidebar
+row (`apps/web/src/components/localDraftSession.ts`). Window-level shortcuts, typing, and
 paste go to the chat that holds focus or was clicked last
 (`apps/web/src/components/chat/composerEventScope.ts`). Clicking into one
 chat blurs the other chat's composer and rests it into its compact bar.

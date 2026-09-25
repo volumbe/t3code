@@ -58,6 +58,7 @@ import { useComposerMenuProps } from "./chat/composerEventScope";
 import { measureRestingComposerControls } from "./chat/restingComposerControlsMeasurement";
 import { resolveRestingComposerControlsNaturalWidth } from "./composerFooterLayout";
 import { cn } from "~/lib/utils";
+import { useLocalDraftSession } from "./localDraftSession";
 
 export interface BranchToolbarHandle {
   openBranchPicker: () => void;
@@ -488,11 +489,16 @@ export const BranchToolbar = memo(function BranchToolbar({
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
   );
-  const draftThread = useComposerDraftStore((store) =>
+  const localDraftSession = useLocalDraftSession();
+  const storedDraftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
   );
+  const draftThread = localDraftSession?.draft ?? storedDraftThread;
   const serverThread = useThreadShell(threadRef);
-  const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const storeSetDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const setDraftThreadContext: typeof storeSetDraftThreadContext = localDraftSession
+    ? (_target, patch) => localDraftSession.update(patch)
+    : storeSetDraftThreadContext;
   const activeProjectRef = serverThread
     ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
     : draftThread

@@ -215,6 +215,12 @@ import {
   foldSubagentActivities,
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
+import {
+  applyLocalDraftContextPatch,
+  type DraftThreadContextPatch,
+  type LocalDraftSession,
+  LocalDraftSessionContext,
+} from "./localDraftSession";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
@@ -713,8 +719,8 @@ function isCompactCommandMessage(message: ChatMessage): boolean {
 
 /**
  * A chat rendered inside another view, such as the right panel's dock, beside
- * the routed chat. It shows only the timeline and composer: no header, right
- * panel, terminal drawers, or branch toolbar. It never navigates; where the
+ * the routed chat. It shows the timeline, composer, and branch toolbar: no
+ * header, right panel, or terminal drawers. It never navigates; where the
  * routed chat would change the route, it calls back instead. Window-level
  * shortcuts act on it only while the event comes from inside it.
  */
@@ -730,6 +736,11 @@ export interface ChatViewEmbedding {
     projectId: ProjectId;
     /** The model when the project sets no default. */
     fallbackModelSelection: ModelSelection;
+    /**
+     * The workspace the new chat starts in, such as the host chat's worktree.
+     * The branch toolbar can still switch it to a new worktree.
+     */
+    workspace?: { branch: string | null; worktreePath: string | null };
   };
   /** The first message created the thread. */
   onThreadCreated: (threadId: ThreadId) => void;
@@ -1593,10 +1604,13 @@ export default function ChatView(props: ChatViewProps) {
   }, [routeKind, routeThreadRef, routeThreadState]);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const settings = useEnvironmentSettings(environmentId);
-  // An embedded new chat works like a routed draft of the project's checkout
-  // until its first message creates the thread.
+  // An embedded new chat works like a routed draft until its first message
+  // creates the thread. It starts in its given workspace (the project's
+  // checkout by default) and keeps later workspace and mode changes in local
+  // state, since the draft store ignores a draft it does not hold.
   const [embeddedDraftCreatedAt] = useState(() => new Date().toISOString());
-  const embeddedDraftSession = useMemo<DraftSessionState | null>(
+  const embeddedWorktreePath = embeddedNewThread?.workspace?.worktreePath ?? null;
+  const embeddedDraftSeed = useMemo<DraftSessionState | null>(
     () =>
       embeddedNewThread
         ? {
@@ -1608,13 +1622,37 @@ export default function ChatView(props: ChatViewProps) {
             runtimeMode: resolveProjectSettings(settings, embeddedNewThread.projectId).settings
               .defaultRuntimeMode,
             interactionMode: DEFAULT_INTERACTION_MODE,
-            branch: null,
-            worktreePath: null,
-            envMode: "local",
+            // Same shape as the "Previous worktree" hop: point at the existing tree.
+            branch: embeddedWorktreePath ? (embeddedNewThread.workspace?.branch ?? null) : null,
+            worktreePath: embeddedWorktreePath,
+            envMode: embeddedWorktreePath ? "worktree" : "local",
             startFromOrigin: false,
           }
         : null,
-    [embeddedDraftCreatedAt, embeddedNewThread, environmentId, settings, threadId],
+    [
+      embeddedDraftCreatedAt,
+      embeddedNewThread,
+      embeddedWorktreePath,
+      environmentId,
+      settings,
+      threadId,
+    ],
+  );
+  const [embeddedDraftEdits, setEmbeddedDraftEdits] = useState<DraftSessionState | null>(null);
+  const embeddedDraftSession = embeddedDraftSeed ? (embeddedDraftEdits ?? embeddedDraftSeed) : null;
+  const updateEmbeddedDraft = useCallback(
+    (patch: DraftThreadContextPatch) => {
+      if (!embeddedDraftSeed) return;
+      setEmbeddedDraftEdits((current) =>
+        applyLocalDraftContextPatch(current ?? embeddedDraftSeed, patch),
+      );
+    },
+    [embeddedDraftSeed],
+  );
+  const localDraftSession = useMemo<LocalDraftSession | null>(
+    () =>
+      embeddedDraftSession ? { draft: embeddedDraftSession, update: updateEmbeddedDraft } : null,
+    [embeddedDraftSession, updateEmbeddedDraft],
   );
   const draftThread = storedDraftThread ?? embeddedDraftSession;
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -1675,7 +1713,16 @@ export default function ChatView(props: ChatViewProps) {
     (store) => store.setInteractionMode,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
-  const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const storeSetDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  // An embedded new chat's draft lives in local state, so its workspace and
+  // mode changes go there instead of the store.
+  const setDraftThreadContext = useMemo<typeof storeSetDraftThreadContext>(
+    () =>
+      localDraftSession
+        ? (_target, patch) => localDraftSession.update(patch)
+        : storeSetDraftThreadContext,
+    [localDraftSession, storeSetDraftThreadContext],
+  );
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
     (store) => store.getDraftSessionByLogicalProjectKey,
   );
@@ -3798,16 +3845,14 @@ export default function ChatView(props: ChatViewProps) {
   // Keep a hidden, off-flow strip mounted for existing threads so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
-  // Work mode drops the strip (environment and branch). The composer keeps its
-  // controls inline, and the chat header shows a remote environment instead.
   const mountComposerContextStrip = shouldShowComposerContextStrip({
-    hasActiveProject: activeProject !== null && !isWorkMode && !isEmbedded,
+    hasActiveProject: activeProject !== null,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
-    hasActiveProject: activeProject !== null && !isWorkMode && !isEmbedded,
+    hasActiveProject: activeProject !== null,
     isGitRepo,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
@@ -9861,44 +9906,46 @@ export default function ChatView(props: ChatViewProps) {
                       >
                         {mountComposerContextStrip && (
                           <div className="pointer-events-auto">
-                            <BranchToolbar
-                              ref={branchToolbarRef}
-                              environmentId={activeThread.environmentId}
-                              threadId={activeThread.id}
-                              showGitControls={isGitRepo && !isWorkMode}
-                              {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                              onEnvModeChange={onEnvModeChange}
-                              startFromOrigin={startFromOrigin}
-                              onStartFromOriginChange={onStartFromOriginChange}
-                              {...(canOverrideServerThreadEnvMode
-                                ? { effectiveEnvModeOverride: envMode }
-                                : {})}
-                              {...(canOverrideServerThreadEnvMode
-                                ? {
-                                    activeThreadBranchOverride: activeThreadBranch,
-                                    onActiveThreadBranchOverrideChange:
-                                      setPendingServerThreadBranch,
-                                  }
-                                : {})}
-                              envLocked={envLocked}
-                              onComposerFocusRequest={scheduleComposerFocus}
-                              {...(canCheckoutPullRequestIntoThread
-                                ? { onCheckoutPullRequestRequest: openPullRequestDialog }
-                                : {})}
-                              {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
-                              autoEnvironmentLabel={autoEnvironmentLabel}
-                              onAutoEnvironment={
-                                draftId &&
-                                !envLocked &&
-                                hasMultipleEnvironments &&
-                                loadBalancingSettings.loadBalancingEnabled
-                                  ? onAutoEnvironment
-                                  : undefined
-                              }
-                              availableEnvironments={logicalProjectEnvironments}
-                              composerControlsHostRef={setRestingComposerControlsHost}
-                              contextStripVisible={showComposerContextStrip}
-                            />
+                            <LocalDraftSessionContext.Provider value={localDraftSession}>
+                              <BranchToolbar
+                                ref={branchToolbarRef}
+                                environmentId={activeThread.environmentId}
+                                threadId={activeThread.id}
+                                showGitControls={isGitRepo}
+                                {...(routeKind === "draft" && draftId ? { draftId } : {})}
+                                onEnvModeChange={onEnvModeChange}
+                                startFromOrigin={startFromOrigin}
+                                onStartFromOriginChange={onStartFromOriginChange}
+                                {...(canOverrideServerThreadEnvMode
+                                  ? { effectiveEnvModeOverride: envMode }
+                                  : {})}
+                                {...(canOverrideServerThreadEnvMode
+                                  ? {
+                                      activeThreadBranchOverride: activeThreadBranch,
+                                      onActiveThreadBranchOverrideChange:
+                                        setPendingServerThreadBranch,
+                                    }
+                                  : {})}
+                                envLocked={envLocked}
+                                onComposerFocusRequest={scheduleComposerFocus}
+                                {...(canCheckoutPullRequestIntoThread && !isEmbedded
+                                  ? { onCheckoutPullRequestRequest: openPullRequestDialog }
+                                  : {})}
+                                {...(hasMultipleEnvironments ? { onEnvironmentChange } : {})}
+                                autoEnvironmentLabel={autoEnvironmentLabel}
+                                onAutoEnvironment={
+                                  draftId &&
+                                  !envLocked &&
+                                  hasMultipleEnvironments &&
+                                  loadBalancingSettings.loadBalancingEnabled
+                                    ? onAutoEnvironment
+                                    : undefined
+                                }
+                                availableEnvironments={logicalProjectEnvironments}
+                                composerControlsHostRef={setRestingComposerControlsHost}
+                                contextStripVisible={showComposerContextStrip}
+                              />
+                            </LocalDraftSessionContext.Provider>
                           </div>
                         )}
                       </div>
