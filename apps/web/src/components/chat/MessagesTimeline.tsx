@@ -243,6 +243,7 @@ import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../times
 import { SkillInlineText } from "./SkillInlineText";
 import { deriveAgentSpawnSummary } from "./agentSpawnSummary";
 import { formatWorkspaceRelativePath } from "../../filePathDisplay";
+import { stripThreadParentMarker } from "../work/threadParent.logic";
 import {
   buildReviewCommentRenderablePatch,
   formatReviewCommentFence,
@@ -1819,7 +1820,11 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const unknownAttachments = (row.message.attachments ?? []).filter(
     (attachment) => !isImageAttachment(attachment) && !isFileAttachment(attachment),
   );
-  const resolvedContext = useMemo(() => resolveUserMessageContext(row.message), [row.message]);
+  const resolvedContext = useMemo(() => {
+    const context = resolveUserMessageContext(row.message);
+    // An agent-created chat's first message names its parent chat in a hidden marker.
+    return { ...context, text: stripThreadParentMarker(context.text) };
+  }, [row.message]);
   const previewImages = useMemo(
     () => userImages.filter((image) => image.name.startsWith("preview-annotation-")),
     [userImages],

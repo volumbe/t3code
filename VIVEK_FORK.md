@@ -23,7 +23,12 @@ choice is stored locally under `t3work:work-mode:v1`.
   Work projects are client-side only: they record which project each
   `environmentId:threadId` is in and do not change server threads, which still
   run in a repository project. Deleting a Work project moves its chats back to
-  Chats. The chat header shows the machine icon for chats on another machine.
+  Chats. A chat an agent creates through the orchestration API can name its
+  parent with `<!-- t3work-parent: <thread ID> -->` at the start of its first
+  message; the app files it in the parent's Work project and hides the marker
+  (`apps/web/src/components/work/threadParent.logic.ts`). Each unfiled chat
+  created in the last two days is checked once per app session, and the app
+  loads its detail to read the marker. The server is unchanged. The chat header shows the machine icon for chats on another machine.
   Work chat rows start with that machine icon and end with one status icon, no
   label. Row icons reserve no columns: they pack against the row's end, and on
   hover the archive button takes the status icon's place (`ThreadStatusIcon` in `apps/web/src/components/ThreadStatusIndicators.tsx`):

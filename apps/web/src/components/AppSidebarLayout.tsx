@@ -23,6 +23,7 @@ import {
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { useIsWorkMode } from "../workModeStore";
+import { useThreadParentFiling } from "./work/useThreadParentFiling";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import {
@@ -146,6 +147,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const isWorkMode = useIsWorkMode();
+  useThreadParentFiling();
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
