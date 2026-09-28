@@ -131,6 +131,13 @@ export function DraftHeroHeadline({
   const canChooseProject = projectPickerEntries.length > 0;
   const shouldShowProjectMenu = canChooseProject;
 
+  // The icon sits outside the dotted underline, at cap height beside the name.
+  const activeProjectIcon = activeProjectGroup ? (
+    <span aria-hidden="true" className="mr-2 inline-flex size-[0.8em] align-[-0.05em]">
+      <ProjectFavicon project={activeProjectGroup} className="size-full" />
+    </span>
+  ) : null;
+
   const projectSelector = shouldShowProjectMenu ? (
     <Menu>
       <Tooltip>
@@ -236,7 +243,14 @@ export function DraftHeroHeadline({
   return (
     <h1 className="mx-auto w-full max-w-5xl text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
       {hasResolvedProject ? (
-        <>What should we build in {projectSelector}?</>
+        <>
+          What should we build in{" "}
+          <span className="whitespace-nowrap">
+            {activeProjectIcon}
+            {projectSelector}
+          </span>
+          ?
+        </>
       ) : canChooseProject ? (
         <>{projectSelector} to start</>
       ) : (
