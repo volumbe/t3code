@@ -20,6 +20,7 @@ import {
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
+import { HistoryNavButtons } from "./HistoryNavButtons";
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { useIsWorkMode } from "../workModeStore";
@@ -131,6 +132,8 @@ function SidebarControl() {
           Toggle main sidebar{shortcutLabel ? ` (${shortcutLabel})` : ""}
         </TooltipPopup>
       </Tooltip>
+      {/* With the sidebar open, back/forward live in its header instead. */}
+      {isSidebarVisible ? null : <HistoryNavButtons className="ml-2" />}
     </div>
   );
 }

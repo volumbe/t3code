@@ -10,6 +10,8 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
+import { HistoryNavButtons } from "../HistoryNavButtons";
+
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
@@ -81,6 +83,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           {pillLabel}
         </Badge>
       ) : null}
+      <HistoryNavButtons className="relative z-10 ml-auto hidden pr-2 md:flex" />
     </SidebarHeader>
   );
 });
