@@ -266,6 +266,12 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { confirmTerminalClose, isTerminalCloseConfirmPending } from "../lib/terminalCloseConfirm";
 import { isPreviewFocused } from "../lib/previewFocus";
+import {
+  RIGHT_PANEL_TOGGLE_FOCUS_ACTION,
+  focusRightPanel,
+  isRightPanelFocused,
+  rememberRightPanelFocus,
+} from "../lib/rightPanelFocus";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import {
   preventRepeatedTerminalCloseShortcut,
@@ -5096,6 +5102,34 @@ export default function ChatView(props: ChatViewProps) {
     }
     useRightPanelStore.getState().toggleVisibility(activeThreadRef);
   }, [activeThreadRef, closePreviewPanel, rightPanelOpen]);
+  // Switches focus between the composer and the right panel, opening the panel
+  // first when it is closed. Leaving the panel remembers where focus was so the
+  // next switch returns there.
+  const toggleRightPanelFocus = useCallback(() => {
+    if (!activeThreadRef) return;
+    if (isRightPanelFocused()) {
+      rememberRightPanelFocus();
+      focusComposer();
+      return;
+    }
+    if (rightPanelOpen) {
+      focusRightPanel();
+      return;
+    }
+    useRightPanelStore.getState().toggleVisibility(activeThreadRef);
+    // The panel is inert until the open state renders.
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        focusRightPanel();
+      });
+    });
+  }, [activeThreadRef, focusComposer, rightPanelOpen]);
+  useEffect(() => {
+    if (isEmbedded) return;
+    return window.desktopBridge?.onMenuAction((action) => {
+      if (action === RIGHT_PANEL_TOGGLE_FOCUS_ACTION) toggleRightPanelFocus();
+    });
+  }, [isEmbedded, toggleRightPanelFocus]);
   const toggleRightPanelMaximized = useCallback(() => {
     if (!canMaximizeRightPanel) return;
     setMaximizedRightPanelThreadKey((threadKey) =>
@@ -6868,6 +6902,13 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "rightPanel.toggleFocus") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) toggleRightPanelFocus();
+        return;
+      }
+
       if (command === "rightPanel.toggleMaximized") {
         event.preventDefault();
         event.stopPropagation();
@@ -7044,6 +7085,7 @@ export default function ChatView(props: ChatViewProps) {
     copyActiveThreadReference,
     getShortcutContext,
     toggleRightPanel,
+    toggleRightPanelFocus,
     toggleRightPanelMaximized,
     toggleTerminalVisibility,
     composerRef,

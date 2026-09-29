@@ -62,7 +62,7 @@ import * as Scope from "effect/Scope";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
-import { PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
+import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from "../ipc/channels.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
@@ -551,6 +551,19 @@ export const isPreviewRefreshShortcut = (input: Electron.Input): boolean =>
   input.type === "keyDown" &&
   input.key.toLowerCase() === "r" &&
   (input.meta || input.control) &&
+  !input.shift &&
+  !input.alt;
+
+/**
+ * Ctrl+Tab switches focus between the chat and the right panel. Keys typed in
+ * a browser tab never reach the app's own shortcut handler, so the page's copy
+ * is caught here and handed to the app.
+ */
+export const isRightPanelFocusShortcut = (input: Electron.Input): boolean =>
+  input.type === "keyDown" &&
+  input.key === "Tab" &&
+  input.control &&
+  !input.meta &&
   !input.shift &&
   !input.alt;
 
@@ -1915,6 +1928,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           ).pipe(Effect.ignore),
         );
         return;
+      }
+      if (isRightPanelFocusShortcut(input)) {
+        event.preventDefault();
+        wc.hostWebContents?.send(MENU_ACTION_CHANNEL, "right-panel.toggle-focus");
       }
     };
     yield* Scope.addFinalizer(

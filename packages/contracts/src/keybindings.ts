@@ -64,6 +64,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "rightPanel.toggle",
   "rightPanel.toggleMaximized",
   "rightPanel.close",
+  "rightPanel.toggleFocus",
   "pullRequest.copyNumber",
   "diff.toggle",
   "preview.toggle",
