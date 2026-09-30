@@ -106,10 +106,11 @@ function SidebarControl() {
       if (
         isRichTextBoldShortcut(event) &&
         event.target instanceof HTMLElement &&
-        event.target.closest('[data-composer-rich-text="true"]')
+        event.target.closest('[data-composer-rich-text="true"]') &&
+        document.getSelection()?.isCollapsed === false
       ) {
-        // The rich-text composer claims Mod+B for bold; the toggle stays
-        // available everywhere else, including the plain-text composer.
+        // The rich-text composer claims Mod+B to bold selected text. With only
+        // a caret there is nothing to bold, so the chord toggles the sidebar.
         return;
       }
       if (
