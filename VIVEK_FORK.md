@@ -94,7 +94,7 @@ The DMG and ZIP go to `release/`. Quit the fork before replacing it. To install
 the ZIP on this Mac:
 
 ```sh
-ditto -x -k release/T3-Work-0.0.42-arm64.zip /Applications
+ditto -x -k release/T3-Work-0.0.44-arm64.zip /Applications
 codesign --force --deep --sign "Apple Development" '/Applications/T3 Work.app'
 codesign --verify --deep --strict '/Applications/T3 Work.app'
 ```
