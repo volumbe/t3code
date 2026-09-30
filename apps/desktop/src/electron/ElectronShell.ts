@@ -11,6 +11,8 @@ import * as Option from "effect/Option";
 
 import * as Electron from "electron";
 
+import { toPullRequestReviewUrl } from "./prReviewUrl.ts";
+
 // Remote open-in-editor deep links (`vscode://vscode-remote/ssh-remote+…`,
 // `zed://ssh/<host>/<path>`) must reach the OS handler; every other non-web
 // scheme stays blocked.
@@ -67,7 +69,7 @@ export const make = ElectronShell.of({
       onNone: () => Effect.succeed(false),
       onSome: (externalUrl) =>
         Effect.promise(() =>
-          Electron.shell.openExternal(externalUrl).then(
+          Electron.shell.openExternal(toPullRequestReviewUrl(externalUrl)).then(
             () => true,
             () => false,
           ),
