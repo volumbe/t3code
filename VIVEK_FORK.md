@@ -87,7 +87,7 @@ first on `PATH`: the build installs into a staging folder without
 PATH="$PWD/node_modules/.bin:$HOME/.cargo/bin:$PATH" \
   env -u GITHUB_REPOSITORY -u T3CODE_DESKTOP_UPDATE_REPOSITORY \
   node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64 \
-  --build-version 0.0.42
+  --build-version 0.0.44
 ```
 
 The DMG and ZIP go to `release/`. Quit the fork before replacing it. To install
