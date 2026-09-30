@@ -1,5 +1,4 @@
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
-import { GitPullRequestIcon } from "lucide-react";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
 import {
@@ -19,6 +18,7 @@ import {
   PrStatusTooltipContent,
   terminalStatusFromRunningIds,
   ThreadStatusIcon,
+  synchronizeTerminalPulse,
   ThreadStatusLabel,
   ThreadWorktreeIndicator,
   useLinkedThreadPullRequest,
@@ -186,7 +186,6 @@ import {
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   resolveProjectStatusIndicator,
-  resolveThreadRowClassName,
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
@@ -232,6 +231,7 @@ import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
+import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -252,7 +252,7 @@ const PROJECT_GROUPING_MODE_LABELS: Record<SidebarProjectGroupingMode, string> =
   separate: "Keep separate",
 };
 const SIDEBAR_ICON_ACTION_BUTTON_CLASS =
-  "inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-icon-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
+  "inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-0.75 text-icon-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring";
 // Work rows swap the status icon for archive in place, so the button takes the
 // status icon's 16px box; the pseudo-element keeps a 24px hit area.
 const WORK_ARCHIVE_BUTTON_CLASS =
@@ -413,6 +413,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         addFiles: (files) => {
           onFileDropThreads(threadRef, files);
         },
+        addFolders: () => {},
       }),
     [onFileDropThreads, threadRef],
   );
@@ -798,7 +799,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           className="text-muted-foreground"
           aria-label={`PR #${currentLinkedPr.number}, status pending`}
         >
-          <GitPullRequestIcon className="size-3" />
+          <PullRequestGlyph.pullRequest className="size-3" />
         </a>
       ) : null}
     </>
@@ -815,15 +816,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       onMouseLeave={handleMouseLeave}
       onBlurCapture={handleBlurCapture}
     >
-      <SidebarMenuSubButton
-        render={rowButtonRender}
-        size="sm"
-        isActive={isActive}
+      {/* A thread row is the legacy sidebar's own control (a focusable div that hosts nested
+          links and buttons), not a SidebarMenuSubButton, so it owns its look here. */}
+      <div
+        role="button"
+        tabIndex={0}
+        data-active={isActive}
+        data-slot="sidebar-menu-sub-button"
+        data-sidebar="menu-sub-button"
+        data-size="sm"
         data-testid={`thread-row-${thread.id}`}
-        className={`${resolveThreadRowClassName({
-          isActive,
-          isSelected,
-        })} relative isolate${isFileDragOver ? " ring-1 ring-inset ring-primary/70" : ""}`}
+        className={cn(
+          "relative isolate flex h-8 w-full min-w-0 cursor-pointer select-none items-center gap-2 overflow-hidden rounded-md px-2 text-left text-xs outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring group-data-[collapsible=icon]:hidden [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-muted-foreground",
+          isActive
+            ? "bg-sidebar-row-active font-medium text-sidebar-foreground hover:bg-sidebar-row-active"
+            : isSelected
+              ? "bg-sidebar-row-selected text-sidebar-foreground hover:bg-sidebar-row-active"
+              : "text-sidebar-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+          isFileDragOver && "ring-1 ring-inset ring-primary/70",
+        )}
         onClick={handleRowClick}
         onDoubleClick={handleRowDoubleClick}
         onKeyDown={handleRowKeyDown}
@@ -855,9 +866,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   </span>
                 }
               />
-              <TooltipPopup side="top" className="max-w-80 whitespace-normal leading-tight">
-                {thread.title}
-              </TooltipPopup>
+              <TooltipPopup side="top">{thread.title}</TooltipPopup>
             </Tooltip>
           )}
         </div>
@@ -869,7 +878,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   <button
                     type="button"
                     aria-label={`Open localhost:${discoveredPorts[0]?.port ?? ""}`}
-                    className="inline-flex cursor-pointer items-center justify-center text-emerald-600 outline-hidden focus-visible:ring-1 focus-visible:ring-ring dark:text-emerald-400"
+                    className="inline-flex cursor-pointer items-center justify-center text-success-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
                     onClick={handleOpenDiscoveredPort}
                   />
                 }
@@ -896,7 +905,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 }
               >
                 <TerminalIcon
-                  className={`size-3 ${terminalStatus.pulse ? "animate-status-pulse" : ""}`}
+                  className={`size-3 ${terminalStatus.pulse ? "motion-safe:animate-status-pulse" : ""}`}
+                  onAnimationStart={synchronizeTerminalPulse}
                 />
               </TooltipTrigger>
               <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
@@ -921,7 +931,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 data-testid={`thread-archive-confirm-${thread.id}`}
                 aria-label={`Confirm archive ${thread.title}`}
                 className={cn(
-                  "inline-flex h-5 cursor-pointer items-center rounded-md bg-destructive/12 px-2 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40",
+                  "inline-flex h-5 cursor-pointer items-center rounded-md bg-destructive/12 px-2 text-3xs font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40",
                   !isWorkMode && "absolute top-1/2 right-1 -translate-y-1/2",
                 )}
                 onPointerDown={stopPropagationOnPointerDown}
@@ -977,7 +987,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         render={
                           <span
                             aria-label={jumpLabel}
-                            className="inline-flex h-5 items-center rounded-full border border-border/80 bg-background/90 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
+                            className="inline-flex h-5 items-center rounded-full border border-border/80 bg-background/90 px-1.5 font-mono text-3xs font-medium tracking-tight text-foreground shadow-sm"
                           />
                         }
                       >
@@ -989,7 +999,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     threadStatus && <ThreadStatusIcon status={threadStatus} />
                   ) : (
                     <span
-                      className={`text-[10px] tabular-nums ${
+                      className={`text-3xs tabular-nums ${
                         isHighlighted ? "text-foreground" : "text-secondary-label"
                       }`}
                     >
@@ -1003,7 +1013,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             )}
           </div>
         </div>
-      </SidebarMenuSubButton>
+      </div>
     </SidebarMenuSubItem>
   );
 });
@@ -1107,7 +1117,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   return (
     <SidebarMenuSub
       ref={attachThreadListAutoAnimateRef}
-      className="mx-0.5 my-0 w-full translate-x-0 gap-0.5 overflow-hidden border-l-0 px-1 py-0 sm:mx-1 sm:px-1.5"
+      className="mx-0.5 my-0 w-full translate-x-0 overflow-hidden sm:mx-1"
     >
       {shouldShowThreadPanel && showEmptyThreadState ? (
         <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
@@ -1160,7 +1170,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             render={showMoreButtonRender}
             data-thread-selection-safe
             size="sm"
-            className="h-8 w-full translate-x-0 justify-start px-2 text-left text-xs text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
             onClick={() => {
               expandThreadListForProject(projectKey);
             }}
@@ -1178,7 +1187,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             render={showLessButtonRender}
             data-thread-selection-safe
             size="sm"
-            className="h-8 w-full translate-x-0 justify-start px-2 text-left text-xs text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
             onClick={() => {
               collapseThreadListForProject(projectKey);
             }}
@@ -2542,9 +2550,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       <div className="group/project-header relative">
         <SidebarMenuButton
           ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
-          className={`pr-8 group-hover/project-header:bg-sidebar-row-hover group-hover/project-header:text-sidebar-foreground max-sm:pr-14 ${
-            isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : ""
-          }`}
+          className={isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : undefined}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
           {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
           onPointerDownCapture={handleProjectButtonPointerDownCapture}
@@ -2588,11 +2594,14 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
               {project.displayName}
             </span>
             {project.groupedProjectCount > 1 ? (
-              <span className="shrink-0 text-secondary-label text-[10px]">
+              <span className="shrink-0 text-secondary-label text-3xs">
                 {project.groupedProjectCount} projects
               </span>
             ) : null}
           </span>
+          {/* Keeps the name clear of the environment badge and new-thread button overlaid on
+              the row's end (two slots on touch, where both stay visible). */}
+          <span aria-hidden className="w-4 shrink-0 max-sm:w-10" />
         </SidebarMenuButton>
         {/* Environment badge – visible by default, crossfades with the
             "new thread" button on hover using the same pointer-events +
@@ -2697,7 +2706,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 : "Update the project title."}
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="space-y-4">
+          <DialogPanel>
             <div className="grid gap-1.5">
               <span className="text-xs font-medium text-foreground">Project title</span>
               <Input
@@ -2744,7 +2753,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 : "Choose how this project should be grouped in the sidebar."}
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="space-y-4">
+          <DialogPanel>
             <div className="grid gap-1.5">
               <span className="text-xs font-medium text-foreground">Grouping rule</span>
               <Select
@@ -2803,7 +2812,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
 const SidebarProjectListRow = memo(function SidebarProjectListRow(props: SidebarProjectItemProps) {
   return (
-    <SidebarMenuItem className="rounded-md">
+    <SidebarMenuItem>
       <SidebarProjectItem {...props} />
     </SidebarMenuItem>
   );
@@ -2856,20 +2865,15 @@ function LocalSecondaryStatus() {
   }
 
   return (
-    <SidebarGroup className="px-2 pt-2 pb-0">
+    <SidebarGroup>
       {connecting.length > 0 ? (
-        <Alert
-          variant="default"
-          className="rounded-2xl border-border/40 bg-accent/40 text-muted-foreground"
-        >
+        <Alert variant="sidebar">
           <Spinner />
-          <AlertTitle className="text-xs font-medium text-foreground">
-            Connecting {connecting.join(", ")}
-          </AlertTitle>
+          <AlertTitle>Connecting {connecting.join(", ")}</AlertTitle>
         </Alert>
       ) : null}
       {failed.length > 0 ? (
-        <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+        <Alert variant="warning">
           <TriangleAlertIcon />
           <AlertTitle>Couldn't connect {failed.map((entry) => entry.label).join(", ")}</AlertTitle>
           <AlertDescription>
@@ -2922,15 +2926,13 @@ function ProjectSortMenu({
     <Menu>
       <Tooltip>
         <TooltipTrigger
-          render={
-            <MenuTrigger className="inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] text-icon-muted transition-colors hover:bg-accent hover:text-foreground" />
-          }
+          render={<MenuTrigger render={<Button size="icon-xs" variant="ghost-muted" />} />}
         >
           <ArrowUpDownIcon className="size-3.5" />
         </TooltipTrigger>
         <TooltipPopup side="right">Sidebar options</TooltipPopup>
       </Tooltip>
-      <MenuPopup align="end" side="bottom" className="min-w-52">
+      <MenuPopup align="end" side="bottom">
         <MenuGroup>
           <div className="px-2 py-1 sm:text-xs font-medium text-muted-foreground">
             Sort projects
@@ -2943,7 +2945,7 @@ function ProjectSortMenu({
           >
             {(Object.entries(SIDEBAR_SORT_LABELS) as Array<[SidebarProjectSortOrder, string]>).map(
               ([value, label]) => (
-                <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
+                <MenuRadioItem key={value} value={value}>
                   {label}
                 </MenuRadioItem>
               ),
@@ -2963,7 +2965,7 @@ function ProjectSortMenu({
             {(
               Object.entries(SIDEBAR_THREAD_SORT_LABELS) as Array<[SidebarThreadSortOrder, string]>
             ).map(([value, label]) => (
-              <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
+              <MenuRadioItem key={value} value={value}>
                 {label}
               </MenuRadioItem>
             ))}
@@ -2976,7 +2978,7 @@ function ProjectSortMenu({
           <div className="px-2 py-1">
             <NumberField
               aria-label="Visible thread count"
-              className="w-28 gap-0"
+              className="w-28"
               max={MAX_SIDEBAR_THREAD_PREVIEW_COUNT}
               min={MIN_SIDEBAR_THREAD_PREVIEW_COUNT}
               onValueChange={handleThreadPreviewCountChange}
@@ -2984,14 +2986,13 @@ function ProjectSortMenu({
               step={1}
               value={threadPreviewCount}
             >
-              <NumberFieldGroup className="h-7 rounded-md sm:h-6.5">
+              <NumberFieldGroup>
                 <NumberFieldDecrement
                   aria-label="Decrease visible thread count"
-                  className="px-2 sm:px-2 [&_svg]:size-3.5"
+                  className="[&_svg]:size-3.5"
                 />
                 <NumberFieldInput
                   aria-label="Visible thread count"
-                  className="h-7 w-9 grow-0 px-0 text-xs leading-7 sm:h-6.5 sm:leading-6.5"
                   inputMode="numeric"
                   onKeyDownCapture={(event) => {
                     event.stopPropagation();
@@ -2999,7 +3000,7 @@ function ProjectSortMenu({
                 />
                 <NumberFieldIncrement
                   aria-label="Increase visible thread count"
-                  className="px-2 sm:px-2 [&_svg]:size-3.5"
+                  className="[&_svg]:size-3.5"
                 />
               </NumberFieldGroup>
             </NumberField>
@@ -3442,103 +3443,100 @@ const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWork
     const reorderMarker = dropTarget?.projectId === folder.id ? dropTarget.reorder : undefined;
     const indentStyle = { paddingLeft: `${8 + node.depth * WORK_PROJECT_INDENT_PX}px` };
     return (
-      <SidebarMenuItem
-        key={folder.id}
-        className={cn(
-          "relative rounded-md transition-colors",
-          isDropTarget && "bg-sidebar-row-hover/60",
-          reorderMarker === "before" &&
-            "before:absolute before:inset-x-1 before:-top-0.5 before:h-0.5 before:rounded-full before:bg-primary",
-          reorderMarker === "after" &&
-            "after:absolute after:inset-x-1 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-primary",
-        )}
-        {...dropHandlers({ projectId: folder.id })}
-      >
+      <SidebarMenuItem key={folder.id} {...dropHandlers({ projectId: folder.id })}>
         <div
-          className="group/project-header relative"
-          draggable={editingFolderId !== folder.id}
-          onDragStart={(event) => {
-            event.stopPropagation();
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData(WORK_PROJECT_DRAG_TYPE, folder.id);
-          }}
+          className={cn(
+            "relative rounded-md transition-colors",
+            isDropTarget && "bg-sidebar-row-hover/60",
+            reorderMarker === "before" &&
+              "before:absolute before:inset-x-1 before:-top-0.5 before:h-0.5 before:rounded-full before:bg-primary",
+            reorderMarker === "after" &&
+              "after:absolute after:inset-x-1 after:-bottom-0.5 after:h-0.5 after:rounded-full after:bg-primary",
+          )}
         >
-          {editingFolderId === folder.id ? (
-            <div
-              className="flex h-8 w-full items-center gap-[var(--sidebar-control-gap)] pr-2"
-              style={indentStyle}
-            >
-              <WorkProjectNameInput
-                initialName={folder.name}
-                onCommit={(name) => {
-                  const store = useWorkModeStore.getState();
-                  store.renameFolder(folder.id, name);
-                  store.setEditingFolderId(null);
-                }}
-                onCancel={() => useWorkModeStore.getState().setEditingFolderId(null)}
-              />
-            </div>
-          ) : (
-            <SidebarMenuButton
-              className="pr-8 group-hover/project-header:bg-sidebar-row-hover group-hover/project-header:text-sidebar-foreground max-sm:pr-14"
-              style={indentStyle}
-              onClick={() => useWorkModeStore.getState().setFolderCollapsed(folder.id, expanded)}
-              onDoubleClick={() => useWorkModeStore.getState().setEditingFolderId(folder.id)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                handleProjectContextMenu(node, { x: event.clientX, y: event.clientY });
-              }}
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-1">
-                <span className="truncate text-sm font-medium text-sidebar-foreground/90">
-                  {folder.name}
-                </span>
-                {/* Collapse state shows on hover, right of the name. */}
-                <ChevronRightIcon
-                  aria-hidden
-                  className={cn(
-                    "size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-150 group-hover/project-header:opacity-100",
-                    expanded && "rotate-90",
-                  )}
+          <div
+            className="group/project-header relative"
+            draggable={editingFolderId !== folder.id}
+            onDragStart={(event) => {
+              event.stopPropagation();
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(WORK_PROJECT_DRAG_TYPE, folder.id);
+            }}
+          >
+            {editingFolderId === folder.id ? (
+              <div className="flex h-8 w-full items-center gap-2 pr-2" style={indentStyle}>
+                <WorkProjectNameInput
+                  initialName={folder.name}
+                  onCommit={(name) => {
+                    const store = useWorkModeStore.getState();
+                    store.renameFolder(folder.id, name);
+                    store.setEditingFolderId(null);
+                  }}
+                  onCancel={() => useWorkModeStore.getState().setEditingFolderId(null)}
                 />
-              </span>
-            </SidebarMenuButton>
-          )}
-          {editingFolderId !== folder.id ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <div className="pointer-events-none absolute top-[calc(50%+1px)] right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
-                    <button
-                      type="button"
-                      aria-label={`Create new chat in ${folder.name}`}
-                      className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        createChat(folder.id, { x: event.clientX, y: event.clientY });
-                      }}
-                    >
-                      <SquarePenIcon className="size-3.5" />
-                    </button>
-                  </div>
-                }
-              />
-              <TooltipPopup side="top">
-                {newThreadShortcutLabel ? `New chat (${newThreadShortcutLabel})` : "New chat"}
-              </TooltipPopup>
-            </Tooltip>
+              </div>
+            ) : (
+              <SidebarMenuButton
+                style={indentStyle}
+                onClick={() => useWorkModeStore.getState().setFolderCollapsed(folder.id, expanded)}
+                onDoubleClick={() => useWorkModeStore.getState().setEditingFolderId(folder.id)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  handleProjectContextMenu(node, { x: event.clientX, y: event.clientY });
+                }}
+              >
+                {/* Leaves room for the new-chat action at the end of the row. */}
+                <span className="flex min-w-0 flex-1 items-center gap-1 pr-6 max-sm:pr-12">
+                  <span className="truncate text-sm font-medium text-sidebar-foreground/90">
+                    {folder.name}
+                  </span>
+                  {/* Collapse state shows on hover, right of the name. */}
+                  <ChevronRightIcon
+                    aria-hidden
+                    className={cn(
+                      "size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-150 group-hover/project-header:opacity-100",
+                      expanded && "rotate-90",
+                    )}
+                  />
+                </span>
+              </SidebarMenuButton>
+            )}
+            {editingFolderId !== folder.id ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div className="pointer-events-none absolute top-[calc(50%+1px)] right-0.5 -translate-y-1/2 opacity-0 transition-opacity duration-150 max-sm:pointer-events-auto max-sm:opacity-100 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+                      <button
+                        type="button"
+                        aria-label={`Create new chat in ${folder.name}`}
+                        className={SIDEBAR_ICON_ACTION_BUTTON_CLASS}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          createChat(folder.id, { x: event.clientX, y: event.clientY });
+                        }}
+                      >
+                        <SquarePenIcon className="size-3.5" />
+                      </button>
+                    </div>
+                  }
+                />
+                <TooltipPopup side="top">
+                  {newThreadShortcutLabel ? `New chat (${newThreadShortcutLabel})` : "New chat"}
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
+          </div>
+          {expanded && node.children.length > 0 ? (
+            <SidebarMenu className="mt-1">{node.children.map(renderProject)}</SidebarMenu>
           ) : null}
-        </div>
-        {expanded && node.children.length > 0 ? (
-          <SidebarMenu className="mt-1">{node.children.map(renderProject)}</SidebarMenu>
-        ) : null}
-        <div style={{ paddingLeft: `${node.depth * WORK_PROJECT_INDENT_PX}px` }}>
-          {renderThreadList(
-            `work-project:${folder.id}`,
-            groups.byProjectId.get(folder.id) ?? [],
-            expanded,
-          )}
+          <div style={{ paddingLeft: `${node.depth * WORK_PROJECT_INDENT_PX}px` }}>
+            {renderThreadList(
+              `work-project:${folder.id}`,
+              groups.byProjectId.get(folder.id) ?? [],
+              expanded,
+            )}
+          </div>
         </div>
       </SidebarMenuItem>
     );
@@ -3548,7 +3546,7 @@ const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWork
 
   return (
     <>
-      <SidebarGroup className="px-2 py-2" data-testid="work-projects-section">
+      <SidebarGroup data-testid="work-projects-section">
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
           <Tooltip>
@@ -3558,7 +3556,6 @@ const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWork
                   size="icon-xs"
                   variant="ghost-muted"
                   aria-label="New project"
-                  className="size-6 [--control-icon-color:currentColor] text-icon-muted"
                   onClick={createProject}
                 />
               }
@@ -3575,35 +3572,35 @@ const SidebarWorkSections = memo(function SidebarWorkSections(props: SidebarWork
           </div>
         ) : null}
       </SidebarGroup>
-      <SidebarGroup
-        className={`px-2 py-2 transition-colors${isChatsDropTarget ? " rounded-md bg-sidebar-row-hover/60" : ""}`}
-        data-testid="work-chats-section"
-        {...dropHandlers({ projectId: null })}
-      >
-        <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
-          <span className="text-xs font-medium text-sidebar-muted-foreground/80">Chats</span>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="icon-xs"
-                  variant="ghost-muted"
-                  aria-label="New chat"
-                  className="size-6 [--control-icon-color:currentColor] text-icon-muted"
-                  onClick={(event) => createChat(null, { x: event.clientX, y: event.clientY })}
-                />
-              }
-            >
-              <SquarePenIcon className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipPopup side="right">New chat</TooltipPopup>
-          </Tooltip>
+      <SidebarGroup data-testid="work-chats-section" {...dropHandlers({ projectId: null })}>
+        <div
+          className={cn(
+            "rounded-md transition-colors",
+            isChatsDropTarget && "bg-sidebar-row-hover/60",
+          )}
+        >
+          <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
+            <span className="text-xs font-medium text-sidebar-muted-foreground/80">Chats</span>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost-muted"
+                    aria-label="New chat"
+                    onClick={(event) => createChat(null, { x: event.clientX, y: event.clientY })}
+                  />
+                }
+              >
+                <SquarePenIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="right">New chat</TooltipPopup>
+            </Tooltip>
+          </div>
+          <SidebarMenu>
+            <SidebarMenuItem>{renderThreadList("work-chats", groups.chats, true)}</SidebarMenuItem>
+          </SidebarMenu>
         </div>
-        <SidebarMenu>
-          <SidebarMenuItem className="rounded-md">
-            {renderThreadList("work-chats", groups.chats, true)}
-          </SidebarMenuItem>
-        </SidebarMenu>
       </SidebarGroup>
     </>
   );
@@ -3708,28 +3705,18 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
   return (
     <SidebarContent
-      className="gap-0"
       fixedHeader={
         // Lifted above the stage backdrop, whose fade bleeds below the
         // header and would otherwise paint across the search row's outline.
-        <SidebarGroup className="relative z-[1] px-2 pt-2 pb-1">
+        <SidebarGroup className="z-[1]">
           <SidebarMenu>
             <SidebarMenuItem>
               <CommandDialogTrigger
-                render={
-                  <SidebarMenuButton
-                    className="focus-visible:ring-0"
-                    data-testid="command-palette-trigger"
-                  />
-                }
+                render={<SidebarMenuButton data-testid="command-palette-trigger" />}
               >
                 <SearchIcon />
                 <span className="flex-1 truncate">Search</span>
-                {commandPaletteShortcutLabel ? (
-                  <Kbd className="h-4 min-w-0 rounded-sm px-1.5 text-[10px]">
-                    {commandPaletteShortcutLabel}
-                  </Kbd>
-                ) : null}
+                {commandPaletteShortcutLabel ? <Kbd>{commandPaletteShortcutLabel}</Kbd> : null}
               </CommandDialogTrigger>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -3737,8 +3724,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
       }
     >
       {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
-        <SidebarGroup className="px-2 pt-2 pb-0">
-          <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+        <SidebarGroup>
+          <Alert variant="warning">
             <TriangleAlertIcon />
             <AlertTitle>Intel build on Apple Silicon</AlertTitle>
             <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
@@ -3776,7 +3763,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           resolveLogicalProjectKey={resolveLogicalProjectKey}
         />
       ) : (
-        <SidebarGroup className="px-2 py-2">
+        <SidebarGroup>
           <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
             <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
             <div className="flex items-center gap-1">
@@ -3796,7 +3783,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                       variant="ghost-muted"
                       aria-label="Add project"
                       data-testid="sidebar-add-project-trigger"
-                      className="size-6 [--control-icon-color:currentColor] text-icon-muted"
                       onClick={openAddProject}
                     />
                   }
