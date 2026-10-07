@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
-import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { HistoryNavButtons } from "../HistoryNavButtons";
 
@@ -60,7 +60,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
     // The titlebar row, not a padded SidebarHeader: it aligns to the window controls.
     <div
       className={cn(
-        "@container/sidebar-header relative flex h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center gap-2 px-3 md:px-0",
+        "relative flex h-[var(--workspace-topbar-height)] shrink-0 flex-row items-center gap-2 px-3 md:pl-0",
         isElectron && "drag-region",
       )}
     >
@@ -70,17 +70,16 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         variant={backdropVariant ? "media-navigation" : "ghost"}
         className="relative top-auto z-10 translate-y-0 md:hidden"
       />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
-      {pillLabel ? (
-        <Badge
-          className="relative z-10 ml-1 hidden @[15rem]/sidebar-header:inline-flex"
-          data-environment-identification="pill"
-          size="sm"
-          variant="secondary"
-        >
-          {pillLabel}
-        </Badge>
-      ) : null}
+      <div className="relative z-10 flex h-8 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden py-0.5">
+        <SidebarBrand onBackdrop={backdropVariant !== null} />
+        {pillLabel ? (
+          <div className="ml-1 flex h-7 items-center">
+            <Badge data-environment-identification="pill" size="sm" variant="secondary">
+              {pillLabel}
+            </Badge>
+          </div>
+        ) : null}
+      </div>
       <HistoryNavButtons className="relative z-10 ml-auto hidden pr-2 md:flex" />
     </div>
   );
@@ -94,6 +93,37 @@ const APP_MODE_OPTIONS = [
   label: string;
   description: string;
 }>;
+
+// Measures the brand at its titlebar inset, plus the header's right padding and the
+// sidebar border, so the sidebar minimum follows font size, zoom and macOS window controls.
+export function SidebarBrandWidthProbe({
+  onWidthChange,
+}: {
+  onWidthChange: (width: number) => void;
+}) {
+  const observeWidth = useCallback(
+    (probe: HTMLDivElement) => {
+      const observer = new ResizeObserver(([entry]) => {
+        if (entry) onWidthChange(entry.borderBoxSize[0]?.inlineSize ?? probe.offsetWidth);
+      });
+      observer.observe(probe);
+      return () => observer.disconnect();
+    },
+    [onWidthChange],
+  );
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none invisible fixed top-0 left-0 flex w-max border-r border-transparent pr-3"
+      ref={observeWidth}
+    >
+      <div className="ml-[var(--workspace-titlebar-content-left)] flex">
+        <SidebarBrandMark onBackdrop={false} />
+      </div>
+    </div>
+  );
+}
 
 /** "T3 Code" / "T3 Work": the brand doubles as the switch between the two modes. */
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
@@ -109,13 +139,12 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
           <button
             type="button"
             className={cn(
-              "group/brand relative z-10 ml-[calc(var(--workspace-titlebar-content-left)-0.25rem)] hidden h-7 w-fit min-w-0 shrink-0 cursor-pointer items-center gap-1 overflow-hidden rounded-md px-1 outline-hidden ring-ring [-webkit-app-region:no-drag] hover:bg-sidebar-row-hover focus-visible:ring-2 data-[popup-open]:bg-sidebar-row-hover md:flex",
+              "group/brand relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 cursor-pointer items-center gap-1 overflow-hidden rounded-md px-1 outline-hidden ring-ring [-webkit-app-region:no-drag] hover:bg-sidebar-row-hover focus-visible:ring-2 data-[popup-open]:bg-sidebar-row-hover md:flex",
               onBackdrop ? "text-white hover:bg-white/15" : "text-foreground",
             )}
           />
         }
       >
-        {/* Center the visible capitals, without the font's ascender/descender space. */}
         <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
           <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
           <span
@@ -135,19 +164,34 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
         />
       </MenuTrigger>
       <MenuPopup align="start" className="w-60">
-        {APP_MODE_OPTIONS.map((option) => {
-          return (
-            <MenuItem key={option.mode} onClick={() => setMode(option.mode)}>
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="font-medium">T3 {option.label}</span>
-                <span className="text-xs text-muted-foreground">{option.description}</span>
-              </span>
-              {option.mode === mode ? <CheckIcon className="size-4 shrink-0" /> : null}
-            </MenuItem>
-          );
-        })}
+        {APP_MODE_OPTIONS.map((option) => (
+          <MenuItem key={option.mode} onClick={() => setMode(option.mode)}>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="font-medium">T3 {option.label}</span>
+              <span className="text-xs text-muted-foreground">{option.description}</span>
+            </span>
+            {option.mode === mode ? <CheckIcon className="size-4 shrink-0" /> : null}
+          </MenuItem>
+        ))}
       </MenuPopup>
     </Menu>
+  );
+}
+
+function SidebarBrandMark({ onBackdrop }: { onBackdrop: boolean }) {
+  return (
+    // Center the visible capitals, without the font's ascender/descender space.
+    <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
+      <T3Wordmark aria-label="T3" className="h-[1cap] w-auto shrink-0" />
+      <span
+        className={cn(
+          "truncate [text-box:trim-both_cap_alphabetic]",
+          onBackdrop ? "text-white/70" : "text-muted-foreground",
+        )}
+      >
+        Code
+      </span>
+    </span>
   );
 }
 

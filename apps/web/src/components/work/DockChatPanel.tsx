@@ -23,15 +23,9 @@ import { useCallback, useMemo, useState } from "react";
 import { composerDraftHasUserContent, useComposerDraftStore } from "~/composerDraftStore";
 import { newThreadId } from "~/lib/utils";
 import { type ChatSurface, useRightPanelStore } from "~/rightPanelStore";
-import {
-  useThreadDetail,
-  useThreadShell,
-  useThreadShells,
-  useThreadStatus,
-} from "~/state/entities";
+import { useThreadProjection, useThreadShell, useThreadShells } from "~/state/entities";
 import { useEnvironmentQuery } from "~/state/query";
 import { environmentShell } from "~/state/shell";
-import { resolveThreadSyncPhase } from "~/threadSync";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { resolveThreadWorkProjectId, useWorkModeStore } from "~/workModeStore";
 import ChatView, { type ChatViewEmbedding } from "../ChatView";
@@ -123,8 +117,7 @@ export function DockChatPanel(props: {
   const threadShell = useThreadShell(threadRef);
   // A new chat's thread does not exist yet; wait for its shell before syncing it.
   const syncThreadRef = threadShell === null ? null : threadRef;
-  const threadDetail = useThreadDetail(syncThreadRef);
-  const threadStatus = useThreadStatus(syncThreadRef);
+  const threadDetail = useThreadProjection(syncThreadRef);
   const bootstrapComplete =
     useEnvironmentQuery(environmentShell.stateAtom(chatEnvironmentId)).data?.snapshot._tag ===
     "Some";
@@ -132,14 +125,6 @@ export function DockChatPanel(props: {
     threadId !== null &&
     threadDetail === null &&
     (surface.threadId === null || surface.threadId === createdThreadId);
-  const threadSyncPhase = isNewChat
-    ? null
-    : resolveThreadSyncPhase({
-        detailExists: threadDetail !== null,
-        shellExists: threadShell !== null,
-        status: threadStatus,
-      });
-
   const selectThread = useCallback(
     (thread: EnvironmentThreadShell) => {
       setAutoFocus(true);
@@ -228,7 +213,6 @@ export function DockChatPanel(props: {
           environmentId={chatEnvironmentId}
           threadId={threadId}
           routeKind="server"
-          threadSyncPhase={threadSyncPhase}
           embedded={embedding}
         />
       )}

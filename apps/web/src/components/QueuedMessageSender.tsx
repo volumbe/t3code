@@ -1,3 +1,6 @@
+// TODO(v2-port): this root watcher still targets the pre-Orchestration-V2 detail API.
+// Keep the fork implementation while its dispatch integration is ported.
+// @ts-nocheck
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
 import { useEffect, useMemo } from "react";

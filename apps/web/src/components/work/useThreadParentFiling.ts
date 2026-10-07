@@ -33,7 +33,7 @@ function firstUserMessageText(state: EnvironmentThreadState): string | null | un
   const thread = Option.getOrNull(state.data);
   if (thread === null) return undefined;
   // A windowed detail may not include the first message.
-  if (Option.isSome(state.page) && state.page.value.hasMore) return null;
+  if (state.history.hasMoreHistory) return null;
   return thread.messages.find((message) => message.role === "user")?.text ?? null;
 }
 
