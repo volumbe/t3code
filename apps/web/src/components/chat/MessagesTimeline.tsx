@@ -1053,10 +1053,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const timelineListFooter = useMemo(
     () => (
       <TimelineListFooter composerInset={anchoredEndSpace ? 0 : contentInsetEndAdjustment}>
+        {queuedMessages.map((queuedMessage, index) => (
+          <div className="messages-timeline-row-frame" key={queuedMessage.id}>
+            <div className="chat-content-lane overflow-x-clip" data-timeline-root="true">
+              <QueuedMessageTimelineRow
+                row={{
+                  id: `queued:${queuedMessage.id}`,
+                  kind: "queued-message",
+                  queuedMessage,
+                  isNext: index === 0,
+                }}
+              />
+            </div>
+          </div>
+        ))}
         {footer}
       </TimelineListFooter>
     ),
-    [anchoredEndSpace, contentInsetEndAdjustment, footer],
+    [anchoredEndSpace, contentInsetEndAdjustment, footer, queuedMessages],
   );
 
   const measureContentOverflow = useCallback(

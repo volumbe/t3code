@@ -23,6 +23,7 @@ import { useThreadProjection } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { isImageAttachment, type ChatMessage } from "../../types";
 import { cn } from "~/lib/utils";
+import ChatMarkdown from "../ChatMarkdown";
 import { ComposerBanner } from "./ComposerBanner";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -395,8 +396,14 @@ export function QueuedRunsControl({
                       </span>
                     ) : null}
                     <Tooltip>
-                      <TooltipTrigger render={<span className="min-w-0 flex-1 truncate" />}>
-                        {previewText}
+                      <TooltipTrigger render={<div className="min-w-0 flex-1 overflow-hidden" />}>
+                        <ChatMarkdown
+                          text={previewText}
+                          cwd={undefined}
+                          threadRef={scopeThreadRef(props.environmentId, props.threadId)}
+                          parseRawHtml={false}
+                          className="text-xs [&_p]:m-0"
+                        />
                       </TooltipTrigger>
                       <TooltipPopup side="top" className="max-w-96 break-words">
                         {previewText}

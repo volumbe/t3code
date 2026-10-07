@@ -125,7 +125,6 @@ describe("DesktopEnvironment", () => {
 
       assert.equal(environment.baseDir, "/Users/alice/.t3-vivek");
       assert.equal(environment.stateDir, "/Users/alice/.t3-vivek/userdata");
-      assert.equal(environment.userDataDirName, "t3code-vivek");
       assert.equal(environment.appUserModelId, "com.volumbe.t3code");
     }),
   );

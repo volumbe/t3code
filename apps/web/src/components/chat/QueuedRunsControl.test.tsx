@@ -16,6 +16,8 @@ vi.mock("@t3tools/client-runtime/state/thread-workflows", () => ({
 
 vi.mock("../../state/entities", () => ({
   useThreadProjection: () => state.projection,
+  useServerConfigs: () => new Map(),
+  useProjects: () => [],
 }));
 
 vi.mock("../../state/threads", () => ({

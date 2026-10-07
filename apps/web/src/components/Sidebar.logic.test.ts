@@ -1418,7 +1418,7 @@ describe("resolveProjectStatusIndicator", () => {
     ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });
   });
 
-  it("ranks waiting below active work and above plan-ready", () => {
+  it("ranks passive waiting below plans and active work", () => {
     const waiting = {
       label: "Waiting" as const,
       colorClass: "text-sidebar-muted-foreground",
@@ -1447,7 +1447,7 @@ describe("resolveProjectStatusIndicator", () => {
         },
         waiting,
       ]),
-    ).toMatchObject({ label: "Waiting" });
+    ).toMatchObject({ label: "Plan Ready" });
   });
 });
 

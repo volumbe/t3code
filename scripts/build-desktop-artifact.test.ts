@@ -263,9 +263,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
   });
 
-  it("switches desktop packaging product names to nightly for nightly builds", () => {
+  it("keeps the fork app name when switching release channels", () => {
     assert.equal(resolveDesktopProductName("0.0.17"), "T3 Work");
-    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Work (Nightly)");
+    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Work");
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {

@@ -114,6 +114,7 @@ vi.mock("@legendapp/list/react", async () => {
           animated?: boolean;
           on?: {
             dataChange?: boolean;
+            footerLayout?: boolean;
             itemLayout?: boolean;
             layout?: boolean;
           };
@@ -171,6 +172,11 @@ vi.mock("@legendapp/list/react", async () => {
         data-maintain-scroll-at-end-data-change={
           typeof props.maintainScrollAtEnd === "object"
             ? props.maintainScrollAtEnd.on?.dataChange
+            : undefined
+        }
+        data-maintain-scroll-at-end-footer-layout={
+          typeof props.maintainScrollAtEnd === "object"
+            ? props.maintainScrollAtEnd.on?.footerLayout
             : undefined
         }
         data-maintain-scroll-at-end-item-layout={

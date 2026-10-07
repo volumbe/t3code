@@ -87,14 +87,14 @@ first on `PATH`: the build installs into a staging folder without
 PATH="$PWD/node_modules/.bin:$HOME/.cargo/bin:$PATH" \
   env -u GITHUB_REPOSITORY -u T3CODE_DESKTOP_UPDATE_REPOSITORY \
   node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64 \
-  --build-version 0.0.44
+  --build-version 0.0.46-nightly.20261007.2787
 ```
 
 The DMG and ZIP go to `release/`. Quit the fork before replacing it. To install
 the ZIP on this Mac:
 
 ```sh
-ditto -x -k release/T3-Work-0.0.44-arm64.zip /Applications
+ditto -x -k release/T3-Work-0.0.46-nightly.20261007.2787-arm64.zip /Applications
 codesign --force --deep --sign "Apple Development" '/Applications/T3 Work.app'
 codesign --verify --deep --strict '/Applications/T3 Work.app'
 ```
@@ -111,8 +111,10 @@ before first launch; turn it back on to show the shared local threads.
 
 ## Taking upstream releases
 
+Nightly builds use the same app name, bundle ID, VO icon, and Electron profile as stable builds. Before packaging, set the release package versions with `node scripts/update-release-package-versions.ts <version>` so the app and bundled server report the artifact version.
+
 Keep `origin` pointed at `volumbe/t3code` and `upstream` at
-`pingdotgg/t3code`. Merge each stable upstream release tag into `main`,
+`pingdotgg/t3code`. Merge the selected upstream release tag into `main`,
 resolve any conflicts in this small customization, then rebuild with that
 release's version. Update the private Ubuntu T3 service to the matching
 version during a quiet period. The machine repository's `update-t3-release`
