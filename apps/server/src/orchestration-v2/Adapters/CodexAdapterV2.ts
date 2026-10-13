@@ -35,7 +35,11 @@ import {
 import { SKILL_MENTION_PATTERN } from "@t3tools/shared/composerInlineTokens";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { dynamicToolTitle } from "@t3tools/shared/toolActivity";
+import {
+  COMPUTER_USE_TOOL_SOURCE,
+  dynamicToolSurface,
+  dynamicToolTitle,
+} from "@t3tools/shared/toolActivity";
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import type {
@@ -497,9 +501,17 @@ export const projectCodexDynamicToolItem = Effect.fn("CodexAdapterV2.projectDyna
         : [trimText(item.namespace), item.tool].filter(Boolean).join(".");
     const presentation: McpToolPresentation =
       item.type === "mcpToolCall" ? yield* mcpToolPresentation(item) : {};
-    const title = dynamicToolTitle(toolName, item.arguments) ?? presentation.title;
+    const title =
+      dynamicToolTitle(toolName, item.arguments, presentation.title) ?? presentation.title;
+    const toolSurface = presentation.toolSurface ?? dynamicToolSurface(toolName, item.arguments);
+    const toolSource =
+      toolSurface === "computer" && presentation.toolSource?.kind !== "computer"
+        ? COMPUTER_USE_TOOL_SOURCE
+        : presentation.toolSource;
     const projection: CodexDynamicToolProjection = {
       ...presentation,
+      ...(toolSurface ? { toolSurface } : {}),
+      ...(toolSource ? { toolSource } : {}),
       toolName,
       ...(title ? { title } : {}),
       input: item.arguments,
@@ -1315,6 +1327,17 @@ export function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...(input.runtimePolicy?.executionEnvironment === undefined
+        ? {}
+        : {
+            shell_environment_policy: {
+              inherit: "all",
+              experimental_use_profile: false,
+              set: input.runtimePolicy.executionEnvironment,
+            },
+            // Office shell credentials do not authorize the personal account's Apps.
+            "features.apps": false,
+          }),
       ...(mcpSession === undefined
         ? {}
         : {
@@ -4813,6 +4836,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   if (!alreadyOffered) {
                     yield* continuationRequests.offer({
                       threadId: context.projectionThreadId,
+                      originMessageId: context.input.message.messageId,
                       providerThreadId: context.providerThread.id,
                       driver: CODEX_PROVIDER,
                       detail: codexBackgroundCommandDetail(payload.item),
@@ -6186,6 +6210,19 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           Effect.gen(function* () {
             const threadId = yield* getNativeThreadId(turnInput.providerThread);
             const mcpSession = yield* mcpSessions.read(turnInput.threadId);
+            // turn/start cannot set shell environment. Reapply this run's values
+            // to the loaded root; already spawned children keep their own config.
+            if (turnInput.runtimePolicy.executionEnvironment !== undefined) {
+              yield* client.raw.request("thread/resume", {
+                threadId,
+                excludeTurns: true,
+                ...codexThreadRuntimeParams({
+                  mcpSession,
+                  modelSelection: turnInput.modelSelection,
+                  runtimePolicy: turnInput.runtimePolicy,
+                }),
+              });
+            }
             const turnStartParams = yield* buildCodexTurnStartParams({
               nativeThreadId: threadId,
               codexInput,

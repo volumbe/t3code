@@ -120,6 +120,7 @@ export type VcsStatusSubscriptionInput = typeof VcsStatusSubscriptionInput.Type;
 
 export const VcsPullInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
+  threadId: Schema.optional(ThreadId),
 });
 export type VcsPullInput = typeof VcsPullInput.Type;
 
@@ -177,6 +178,7 @@ export type GitPreparePullRequestThreadInput = typeof GitPreparePullRequestThrea
 export const VcsRemoveWorktreeInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   path: TrimmedNonEmptyStringSchema,
+  threadId: Schema.optional(ThreadId),
   force: Schema.optional(Schema.Boolean),
 });
 export type VcsRemoveWorktreeInput = typeof VcsRemoveWorktreeInput.Type;

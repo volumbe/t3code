@@ -12,11 +12,13 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import {
   DEFAULT_SERVER_SETTINGS,
+  OfficeError,
   StorageCleanupReport,
   type WorktreeKeepWhen,
 } from "@t3tools/contracts";
 import * as ServerConfig from "./config.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
+import * as OfficeGitPolicy from "./office/OfficeGitPolicy.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as Settings from "./serverSettings.ts";
@@ -228,7 +230,16 @@ describe("merged pull request cleanup", () => {
 
 const cleanupFixture = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const config = yield* ServerConfig.ServerConfig;
+  const testConfig = yield* ServerConfig.ServerConfig;
+  yield* fs.makeDirectory(testConfig.browserArtifactsDir, { recursive: true });
+  yield* fs.makeDirectory(testConfig.logsDir, { recursive: true });
+  // macOS temp folders have symlinked ancestors. File cleanup deliberately
+  // requires canonical roots, so this fixture must use their physical paths.
+  const config = {
+    ...testConfig,
+    browserArtifactsDir: yield* fs.realPath(testConfig.browserArtifactsDir),
+    logsDir: yield* fs.realPath(testConfig.logsDir),
+  };
   const git = yield* GitVcsDriver.GitVcsDriver;
   const repo = yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-repo-" });
   const command = (cwd: string, args: string[]) =>
@@ -251,7 +262,19 @@ const cleanupFixture = Effect.gen(function* () {
   let editBeforeRemoval = false;
   let openSessionCwd: string | null = null;
   let fullStatusCalls = 0;
+  let officeAccessUnavailable = false;
   const context = yield* Layer.build(StorageCleanup.layer).pipe(
+    Effect.provideService(OfficeGitPolicy.OfficeGitPolicy, {
+      environmentForMessage: () => Effect.sync(() => undefined),
+      environmentForThread: () => Effect.sync(() => undefined),
+      withThreadExecution: (_input, operation) =>
+        Effect.gen(function* () {
+          if (officeAccessUnavailable)
+            return yield* new OfficeError({ message: "Office GitHub access is unavailable." });
+          return yield* operation;
+        }),
+    }),
+    Effect.provideService(ServerConfig.ServerConfig, config),
     Effect.provideService(GitVcsDriver.GitVcsDriver, {
       ...git,
       execute: (input) =>
@@ -314,7 +337,11 @@ const cleanupFixture = Effect.gen(function* () {
       editBeforeRemoval = true;
     },
     fs,
+    repo,
     worktree,
+    setOfficeAccessUnavailable: () => {
+      officeAccessUnavailable = true;
+    },
     config,
     command,
     enableFiles: () => {
@@ -362,6 +389,59 @@ const runCleanupTest = <A, E>(
 ) => effect.pipe(Effect.provide(cleanupTestLayer), Effect.scoped);
 
 describe("storage cleanup reports and local file policies", () => {
+  it.live("retains a remotely backed Office checkout when bot access is unavailable", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, repo, command, setOfficeAccessUnavailable } =
+          yield* cleanupFixture;
+        const remote = yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-remote-" });
+        yield* command(remote, ["init", "--bare"]);
+        yield* command(repo, ["remote", "add", "origin", remote]);
+        yield* command(repo, ["push", "origin", "main"]);
+        setOfficeAccessUnavailable();
+        expect(yield* service.releaseThreadWorktree(ThreadId.make("thread-1"))).toBe("retry");
+        expect(yield* fs.exists(worktree)).toBe(true);
+      }),
+    ),
+  );
+  it.live("Office cleanup keeps ignored source even when automatic cleanup permits it", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, setPolicy } = yield* cleanupFixture;
+        setPolicy("tracked-changes");
+        yield* fs.writeFileString(`${worktree}/.env`, "local configuration\n");
+        expect(yield* service.releaseThreadWorktree(ThreadId.make("thread-1"))).toBe("dirty");
+        expect(yield* fs.exists(`${worktree}/.env`)).toBe(true);
+      }),
+    ),
+  );
+  it.live("Office cleanup keeps clean commits that have no remote backup", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree } = yield* cleanupFixture;
+        expect(yield* service.releaseThreadWorktree(ThreadId.make("thread-1"))).toBe("unpushed");
+        expect(yield* fs.exists(worktree)).toBe(true);
+      }),
+    ),
+  );
+  it.live("Office cleanup removes only an idle, clean, remotely backed checkout", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const { service, fs, worktree, repo, command, setOpenSessionCwd } = yield* cleanupFixture;
+        const remote = yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-remote-" });
+        yield* command(remote, ["init", "--bare"]);
+        yield* command(repo, ["remote", "add", "origin", remote]);
+        yield* command(repo, ["push", "origin", "main"]);
+        setOpenSessionCwd(worktree);
+        expect(yield* service.releaseThreadWorktree(ThreadId.make("thread-1"))).toBe("busy");
+        setOpenSessionCwd(null);
+        expect(yield* service.releaseThreadWorktree(ThreadId.make("thread-1"))).toBe("completed");
+        expect(yield* fs.exists(worktree)).toBe(false);
+        expect(yield* fs.exists(`${repo}/tracked.txt`)).toBe(true);
+      }),
+    ),
+  );
+
   it.live("measures nested regular files without following symlinks", () =>
     runCleanupTest(
       Effect.gen(function* () {

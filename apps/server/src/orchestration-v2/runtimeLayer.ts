@@ -51,6 +51,10 @@ import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as OfficeGitPolicy from "../office/OfficeGitPolicy.ts";
+import * as OfficeService from "../office/OfficeService.ts";
+import * as TreehouseRuntime from "../workspace/treehouseRuntimeLayer.ts";
+import * as TreehouseThreadWorkspaces from "../workspace/TreehouseThreadWorkspaces.ts";
 
 /** The shared application event log and its command receipts. */
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -58,8 +62,9 @@ export const layerEventInfrastructure = Layer.mergeAll(
   OrchestrationCommandReceipts.layer,
 );
 
-const layerRuntimePolicyProvided = RuntimePolicy.layerFromProjectStore.pipe(
-  Layer.provide(ProjectStore.layer),
+const layerRuntimePolicyProvided = RuntimePolicy.layerWithOfficeGit.pipe(
+  Layer.provide(RuntimePolicy.layerFromProjectStore.pipe(Layer.provide(ProjectStore.layer))),
+  Layer.provide(OfficeGitPolicy.runtimeLayer),
 );
 
 const layerEventStoreProvided = EventStore.layerFromOrchestrationEventStore.pipe(
@@ -152,7 +157,7 @@ const layerRunExecutionServiceProvided = RunExecutionService.layer.pipe(
   ),
 );
 
-const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
+const layerProviderTurnStartBaseProvided = ProviderTurnStartService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
       layerContextHandoffServiceProvided,
@@ -252,6 +257,17 @@ const layerThreadManagementProvided = ThreadManagementService.layerWithLegacyImp
 export const layerProjectSetupScriptRunner = ProjectSetupScriptRunner.layer.pipe(
   Layer.provide(layerProjectService),
 );
+const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layerWithTreehouse.pipe(
+  Layer.provide(layerProviderTurnStartBaseProvided),
+  Layer.provide(
+    TreehouseThreadWorkspaces.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(TreehouseRuntime.layer, layerThreadManagementProvided, ProjectStore.layer),
+      ),
+    ),
+  ),
+);
+
 const layerManagedProjectFoldersProvided = ManagedProjectFolders.layer.pipe(
   Layer.provide(layerProjectService),
 );
@@ -283,6 +299,7 @@ const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
   ),
 );
 const layerProviderContinuationWorkerProvided = ProviderContinuationService.layer.pipe(
+  Layer.provide(OfficeService.layer),
   Layer.provide(
     Layer.mergeAll(
       ProviderContinuationRequests.layer,

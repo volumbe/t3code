@@ -4,9 +4,12 @@ import * as Clock from "effect/Clock";
 import * as Random from "effect/Random";
 import * as Semaphore from "effect/Semaphore";
 import * as StorageCleanup from "./storageCleanup.ts";
+import * as TreehouseRuntime from "./workspace/treehouseRuntimeLayer.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as Firstmate from "./firstmate/index.ts"; // fork: firstmate
+import * as Office from "./office/index.ts"; // fork: office
+import * as OfficeGitPolicy from "./office/OfficeGitPolicy.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 
@@ -306,11 +309,13 @@ const layerPlatformServices = NodeServices.layer;
 
 const layerPersistence = Layer.empty.pipe(Layer.provideMerge(SqlitePersistence.layerConfig));
 
+const layerGitVcsDriver = GitVcsDriver.layer.pipe(Layer.provideMerge(TreehouseRuntime.layer));
+
 const layerVcsDriverRegistry = VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer));
 
 const layerSourceControlProviderRegistry = SourceControlProviderRegistry.layer.pipe(
   Layer.provideMerge(SourceControlBuiltInDrivers.layer),
-  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(layerGitVcsDriver),
   Layer.provideMerge(layerVcsDriverRegistry),
 );
 
@@ -353,23 +358,24 @@ const layerGitManager = GitManager.layer.pipe(
   Layer.provide(Layer.merge(ProjectionStoreV2.layer, ProjectStore.layer)),
   Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
   Layer.provideMerge(WorktreeSetupTracker.layer),
-  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(layerGitVcsDriver),
   Layer.provideMerge(layerSourceControlProviderRegistry),
   Layer.provideMerge(TextGeneration.layer.pipe(Layer.provide(layerSourceControlProviderRegistry))),
 );
 
 const layerGit = Layer.empty.pipe(
   Layer.provideMerge(layerGitManager),
-  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(layerGitVcsDriver),
 );
 
 const layerGitWorkflow = GitWorkflowService.layer.pipe(
+  Layer.provide(OfficeGitPolicy.runtimeLayer),
   Layer.provideMerge(layerVcsDriverRegistry),
   Layer.provideMerge(layerGit),
 );
 
 const layerSourceControlRepositoryService = SourceControlRepositoryService.layer.pipe(
-  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(layerGitVcsDriver),
   Layer.provideMerge(layerSourceControlProviderRegistry),
 );
 
@@ -379,7 +385,7 @@ const layerProjectCloneTracker = ProjectCloneTracker.layer.pipe(
 
 const layerReview = ReviewService.layer.pipe(
   Layer.provide(ProjectStore.layer),
-  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(layerGitVcsDriver),
   Layer.provideMerge(layerVcsDriverRegistry),
 );
 
@@ -409,6 +415,7 @@ const layerCheckpointStore = CheckpointStore.layer.pipe(Layer.provide(layerVcsDr
 const layerPortScanner = PortScanner.layer.pipe(Layer.provide(ProcessRunner.layer));
 
 const layerTerminal = TerminalManager.layer.pipe(
+  Layer.provide(OfficeGitPolicy.runtimeLayer),
   Layer.provide(layerPtyAdapter),
   Layer.provide(layerPortScanner),
   Layer.provide(layerNativeTelemetry),
@@ -553,7 +560,10 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // Asks T3 Connect to deliver webhooks it held while this environment was offline.
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
-  StorageCleanup.layer.pipe(Layer.provide(ProjectionStoreV2.layer)),
+  StorageCleanup.layer.pipe(
+    Layer.provide(ProjectionStoreV2.layer),
+    Layer.provide(OfficeGitPolicy.runtimeLayer),
+  ),
   layerThreadPullRequestWorker,
   Layer.effectDiscard(
     Effect.gen(function* () {
@@ -576,6 +586,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(ProjectionStoreV2.layer),
   ),
   Firstmate.runtimeLayer, // fork: firstmate
+  Office.runtimeLayer, // fork: office
   // Subscribes to `account.rate-limits.updated` so usage bars track live
   // telemetry instead of waiting for the next status probe.
   ProviderUsageLimitsIngestion.layer,
